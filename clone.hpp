@@ -26,6 +26,7 @@ public:
     int genotype_diff;
     int growth_type;
     double fitness;
+    double min_diff = 0;  // The mininal genotype differences that will cause fitness changes
 
     Model(){
         model_ID = 0;
@@ -194,6 +195,7 @@ public:
             curr_bin = loc;
             curr_rcn = sample_loc_change[loc];
             double diff = fabs(prev_rcn - curr_rcn);
+            // cout << prev_rcn << "\t" << curr_rcn << "\t" << diff << endl;
             // cout << "cn difference is " << fabs(diff) << endl;
             if(curr_bin - prev_bin != 1 || diff >= BP_CUTOFF){
                 bp = to_string(prev_bin);
@@ -252,8 +254,13 @@ public:
     int parent_ID;
 
     vector<Cell_ptr> curr_cells;   // only available cells at present
-    // Only store the IDs of cell to save space
-    vector<int> id_curr_cells;
+
+    vector<int> id_curr_cells;      // Only store the IDs of cell to save space
+
+    // double mutation_rate;       // assuming constant mutation rate for one clone
+    // map<int, vector<int>> cnp_all[NUM_LOC];     // store all CNVs in a big array
+    // vector<int> id_by_loc;      // store cell ID sorted by location to facilitate sampling
+    // map<int, pair<double, double>> grates;  // birth/death rates for cells with fitness (dis)advantages
 
     vector<Sample*> samples;
 
@@ -344,6 +351,19 @@ public:
         this->time_end = ncell->time_occur;
     }
 
+    /*
+    Initialize the clone with clonal CNVs if exists
+    nu: The number of new mutations
+    */
+    void initialize_smpl(int Ns, Model model, int verbose = 0){
+        this->id_curr_cells.clear();
+
+        this->ntot = Ns;
+        this->num_novel_mutation = 0;
+
+        this->model = model.model_ID;
+    }
+
 
     Cell_ptr get_cell_from_ID(vector<Cell_ptr>& cells, int cID){
         for(int i = 0; i < cells.size(); i++){
@@ -415,7 +435,7 @@ public:
     }
 
 
-    // Update the birth/death rate of a cell
+    // Update the birth/death rate of a cell (only occur when there are new mutations in daughter cells)
     // Different fitness values may apply at different locations of the genome
     void update_cell_growth(Cell_ptr dcell, const Cell_ptr ncell, const Model& model, int loc_type, int verbose = 0) {
         // Introduce selection to cells with CNAs using specified fitness
@@ -428,37 +448,71 @@ public:
         gdiff = gdiff / NUM_LOC;
 
         switch (model.growth_type) {
-                 case ONLY_BIRTH: {
+            case ONLY_BIRTH: {
+                if(model.genotype_diff > 0){
                     dcell->birth_rate = ncell->birth_rate / (1 + gdiff * model.fitness);
-                    break;
-                 }
-                 case CHANGE_BIRTH: {   // decrease birth rate
-                     double new_grate = (ncell->birth_rate - ncell->death_rate) / (1 + gdiff * model.fitness);
-                     dcell->birth_rate = ncell->death_rate + new_grate;
-                     dcell->death_rate = dcell->birth_rate - new_grate;
-                     break;
-                 }
-                 case CHANGE_DEATH:{    // increase death rate
-                     double new_grate = (ncell->birth_rate - ncell->death_rate) / (1 + gdiff * model.fitness);
-                     double new_drate = (ncell->birth_rate - new_grate);
-                     dcell->death_rate = new_drate > dcell->death_rate ? new_drate : dcell->death_rate;
-                     dcell->birth_rate = dcell->death_rate + new_grate;
-                     break;
-                 }
-                 case CHANGE_BOTH:{
-                     double rn = runiform(r, 0, 1);
-                     if(rn < 0.5){
-                         double new_grate = (ncell->birth_rate - ncell->death_rate) / (1 + gdiff * model.fitness);
-                         dcell->birth_rate = ncell->death_rate + new_grate;
-                         dcell->death_rate = dcell->birth_rate - new_grate;
-                     }else{
-                         double new_grate = (ncell->birth_rate - ncell->death_rate) / (1 + gdiff * model.fitness);
-                         double new_drate = (ncell->birth_rate - new_grate);
-                         dcell->death_rate = new_drate > dcell->death_rate ? new_drate : dcell->death_rate;
-                         dcell->birth_rate = dcell->death_rate + new_grate;
-                     }
-                     break;
-                 }
+                }
+                else{
+                    if(gdiff >= model.min_diff) dcell->birth_rate = ncell->birth_rate * (1 + model.fitness);
+                }
+                break;
+            }
+            case CHANGE_BIRTH: {   // decrease birth rate
+                double new_grate = 0;
+                if(model.genotype_diff > 0){
+                    new_grate = (ncell->birth_rate - ncell->death_rate) / (1 + gdiff * model.fitness);
+                    dcell->birth_rate = ncell->death_rate + new_grate;
+                    dcell->death_rate = dcell->birth_rate - new_grate;
+                }else{
+                    if(gdiff >= model.min_diff){
+                        new_grate = (ncell->birth_rate - ncell->death_rate) * (1 + model.fitness);
+                        dcell->birth_rate = ncell->death_rate + new_grate;
+                        dcell->death_rate = dcell->birth_rate - new_grate;
+                    }
+                }
+
+                break;
+            }
+            case CHANGE_DEATH:{    // increase death rate
+                double new_grate = 0;
+                if(model.genotype_diff > 0){
+                    new_grate = (ncell->birth_rate - ncell->death_rate) / (1 + gdiff * model.fitness);
+                    double new_drate = (ncell->birth_rate - new_grate);
+                    dcell->death_rate = new_drate > dcell->death_rate ? new_drate : dcell->death_rate;
+                    dcell->birth_rate = dcell->death_rate + new_grate;
+                }else{
+                    if(gdiff >= model.min_diff){
+                        new_grate = (ncell->birth_rate - ncell->death_rate) * (1 + model.fitness);
+                        double new_drate = (ncell->birth_rate - new_grate);
+                        dcell->death_rate = new_drate > dcell->death_rate ? new_drate : dcell->death_rate;
+                        dcell->birth_rate = dcell->death_rate + new_grate;
+                    }
+                }
+
+                break;
+            }
+            case CHANGE_BOTH:{
+                double new_grate = 0;
+                if(model.genotype_diff > 0){
+                    new_grate = (ncell->birth_rate - ncell->death_rate) / (1 + gdiff * model.fitness);
+                }else{
+                    if(gdiff >= model.min_diff){
+                        new_grate = (ncell->birth_rate - ncell->death_rate) * (1 + model.fitness);
+                    }else{
+                        new_grate = (ncell->birth_rate - ncell->death_rate);
+                    }
+                }
+                double rn = runiform(r, 0, 1);
+                if(rn < 0.5){
+                    dcell->birth_rate = ncell->death_rate + new_grate;
+                    dcell->death_rate = dcell->birth_rate - new_grate;
+                }else{
+                    double new_drate = (ncell->birth_rate - new_grate);
+                    dcell->death_rate = new_drate > dcell->death_rate ? new_drate : dcell->death_rate;
+                    dcell->birth_rate = dcell->death_rate + new_grate;
+                }
+                break;
+            }
                  default: cout << "" << endl;
              }
 
@@ -636,123 +690,164 @@ public:
      }
 
 
+     // /*
+     // generate CNAs in a pseudo (abstract) way and store in a global data structure
+     // */
+     // int generate_CNV_global(int cell_ID, int verbose = 0){
+     //     int nu = gsl_ran_poisson(r, mutation_rate);
+     //     if(nu <= 0) return nu;
+     //
+     //     if(verbose > 1 && nu > 0) cout << "Generating " << nu << " CNAs under rate " << mutation_rate << endl;
+     //
+     //     gsl_ran_discrete_t* dis_loc = gsl_ran_discrete_preproc(NUM_LOC, LOC_PROBS);
+     //     double u = 0;
+     //     int start = gsl_ran_discrete(r, dis_loc);
+     //     double msize = 0;
+     //     int len = 0;
+     //     int end = 0;
+     //
+     //     for (int j=0; j < nu; j++) {
+     //         u = runiform(r, 0, 1);
+     //         len = 1;    // add 1 to avoid 0 length
+     //         if(u < 0.5){  // gain
+     //             msize = MEAN_GAIN_SIZE;
+     //             if(msize > 1) len = ceil(gsl_ran_exponential(r, msize));
+     //             end = start + len;
+     //             if(end > NUM_LOC) end = NUM_LOC;
+     //             for(int i = start; i < end; i++){
+     //                 cna[i][cell_ID]++;
+     //             }
+     //
+     //         }else{
+     //             msize = MEAN_LOSS_SIZE;
+     //             if(msize > 1) len = ceil(gsl_ran_exponential(r, msize));
+     //             end = start + len;
+     //             if(end > NUM_LOC) end = NUM_LOC;
+     //             for(int i = start; i < end; i++){
+     //                 cna[i][cell_ID]--;
+     //             }
+     //         }
+     //         this->num_mut++;
+     //     }
+     //
+     //     return nu;
+     // }
+
+
      /*
-        This method simulates tumour growth with a rejection-kinetic Monte Carlo algorithm.
+        This method simulates tumour growth with a rejection-kinetic Monte Carlo algorithm, simplified to simulate a very large population (assuming starting from a large population).
+        TODO: seem not necessary to simulate to a large number
         intput:
          Nend -- the cell population size at the end
-         ncell -- the starting cell-> Given a cell in another clone, it can mimick migragation
+         Ns -- the number of starting cells
          model -- 0: neutral, 1: gradual, 2: punctuated
          restart -- 1: start with a new cell; 0: continue with current state
         output:
          a tree-like structure. For each Cell, its children, occurence time, birth rate, death rate
       */
-      void grow_with_cnv_smpl(const Cell_ptr ncell, const Model& model, int Nend, int loc_type, double leap_size=0, int verbose = 0, int restart = 1, double tend = DBL_MAX){
-          // Initialize the simulation with one cell
-          if(restart == 1) initialize_with_cnv(ncell, model, verbose);
-
-          double t = 0;  // starting time, relative to the time of last end
-          int mut_ID = ncell->num_mut;
-          int nu = 0; // The number of new mutations, relative to the time of last end
-          int num_mut_event = 0; // count the number of times a CNA event is introduced
-
-          if(verbose > 0) cout << "\nSimulating tumour growth with CNAs under model " << model.model_ID << " at time " << ncell->time_occur + t << endl;
-
-          // && ncell->time_occur + t <= tend
-          while(this->curr_cells.size() < Nend) {
-              if (this->curr_cells.size() == 0) {
-                  t = 0;
-                  mut_ID = ncell->num_mut;
-                  nu = 0;
-                  initialize_with_cnv(ncell, model, verbose);
-                  continue;
-              }
-              // print_all_cells(this->curr_cells, verbose);
-
-              // Choose a random cell from the current population
-              int rindex = myrng(this->curr_cells.size());
-              Cell_ptr rcell = this->curr_cells[rindex];
-              double rbrate = rcell->birth_rate;
-              double rdrate = rcell->death_rate;
-              int rID = rcell->cell_ID;
-
-              double rmax = get_rmax();
-              // increase time
-              double tau = -log(runiform(r, 0, 1));  // an exponentially distributed random variable
-              double deltaT = tau/(rmax * this->curr_cells.size());
-              t += deltaT;
-
-              if(ncell->time_occur + t > tend && this->curr_cells.size() >= MIN_NCELL){
-                  t = tend - ncell->time_occur;
-                  break;
-              }
-
-              // draw a random number
-              double rb = runiform(r, 0, rmax);
-              // cout << "random number " << rb << endl;
-              if(rb < rbrate){
-                  int rID = rcell->cell_ID;
-
-                  Cell_ptr dcell1 = new Cell(++this->ntot, rID, ncell->time_occur + t);
-                  dcell1->copy_parent((*rcell));
-
-                  Cell_ptr dcell2 = new Cell(++this->ntot, rID, ncell->time_occur + t);
-                  dcell2->copy_parent((*rcell));
-                  dcell2->pos = get_neighbor_position(rcell->pos, POS_SIGMA);
-
-                  // daughter cells aquire nu new mutations, where nu ~ Poisson(mutation_rate)
-                  if (ncell->mutation_rate > 0) {
-                      int nu1 = dcell1->generate_CNV_pseudo(mut_ID, t, verbose);
-                      nu += nu1;
-                      int nu2 = dcell2->generate_CNV_pseudo(mut_ID, t, verbose);
-                      nu += nu2;
-
-                      if(verbose > 1){
-                          cout << "Number of mutations in cell " << dcell1->cell_ID << ": " << "\t" << nu1 << endl;
-                          cout << "Number of mutations in cell " << dcell2->cell_ID << ": " << "\t" << nu2 << endl;
-                      }
-
-                      if(model.fitness != 0)
-                      {
-                          if(verbose > 1){
-                              cout << "Update the grow parameters of daughter cells " << endl;
-                          }
-                          if(nu1 > 0) update_cell_growth(dcell1, ncell, model, loc_type, verbose);
-                          if(nu2 > 0) update_cell_growth(dcell2, ncell, model, loc_type, verbose);
-                      }
-                  }
-                  // Remove the parent cell from the list of current cells
-                  if(rID != 1){
-                      delete (this->curr_cells[rindex]);
-                      this->curr_cells[rindex] = NULL;
-                  }
-
-                  this->curr_cells.erase(this->curr_cells.begin() + rindex);
-                  this->curr_cells.push_back(dcell1);
-                  this->curr_cells.push_back(dcell2);
-              }
-              // death event if b<r<b+d
-              else if(rb >= rbrate && rb < rbrate + rdrate) {
-                  // cout << " death event" << endl;
-                  if(rID != 1){
-                      delete (this->curr_cells[rindex]);
-                      this->curr_cells[rindex] = NULL;
-                  }
-                  this->curr_cells.erase(this->curr_cells.begin() + rindex);
-              }else{
-
-              }
-          }
-
-          this->time_end += t;
-          this->num_novel_mutation += nu;
-
-          if(verbose > 0){
-              cout << "Generated " << nu << " mutations during time " << t << endl;
-              if(verbose > 1) print_all_cells(this->curr_cells, verbose);
-          }
-      }
-
-
+//       void grow_with_cnv_smpl(int Ns, const Model& model, int Nend, int loc_type, double leap_size=0, int verbose = 0, int restart = 1, double tend = DBL_MAX){
+//           // Initialize the simulation with one cell
+//           if(restart == 1) initialize_smpl(Ns, model, verbose);
+//
+//           double t = 0;  // starting time, relative to the time of last end
+//           int mut_ID = ncell->num_mut;
+//           int nu = 0; // The number of new mutations, relative to the time of last end
+//           int num_mut_event = 0; // count the number of times a CNA event is introduced
+//
+//           if(verbose > 0) cout << "\nSimulating tumour growth with CNAs under model " << model.model_ID << " at time " << this->time_occur + t << endl;
+//
+//           // && ncell->time_occur + t <= tend
+//           while(this->ntot < Nend) {
+//               if (this->ntot == 0) {
+//                   t = 0;
+//                   mut_ID = ncell->num_mut;
+//                   nu = 0;
+//                   initialize_smpl(Ns, model, verbose);
+//                   continue;
+//               }
+//               // print_all_cells(this->curr_cells, verbose);
+//
+//               // Choose a random cell from the current population
+//               int rID = myrng(this->ntot);
+//               double rbrate = grates[rID][0];
+//               double rdrate = grates[rID][1];
+//
+//               double rmax = get_rmax();
+//               // increase time
+//               double tau = -log(runiform(r, 0, 1));  // an exponentially distributed random variable
+//               double deltaT = tau/(rmax * this->curr_cells.size());
+//               t += deltaT;
+//
+//               if(this->time_occur + t > tend && this->ntot >= MIN_NCELL){
+//                   t = tend - ncell->time_occur;
+//                   break;
+//               }
+//
+//               // draw a random number
+//               double rb = runiform(r, 0, rmax);
+//               // cout << "random number " << rb << endl;
+//               if(rb < rbrate){
+//                   // this->id_curr_cells.push_back(++this->ntot);
+//                   //
+//                   // this->id_curr_cells.push_back(++this->ntot);
+//                   // ++this->ntot;
+//
+//                   // daughter cells aquire nu new (different) mutations, where nu ~ Poisson(mutation_rate)
+//                   if (this->mutation_rate > 0) {
+//                       int nu1 = generate_CNV_global(rID, verbose);  // One of the daughter cells get the ID of parent
+//                       nu += nu1;
+//                       int cell_ID2 = ++this->ntot;
+//                       // copy the original mutations to daughter cells
+//                       for(int i = 0; i < NUM_LOC; i++){
+//                           cnp_all[i][cell_ID2] = cna[i][rID];
+//                       }
+//                       int nu2 = generate_CNV_global(cell_ID2, verbose);
+//                       nu += nu2;
+//
+//                       if(verbose > 1){
+//                           cout << "Number of mutations in cell " << dcell1->cell_ID << ": " << "\t" << nu1 << endl;
+//                           cout << "Number of mutations in cell " << dcell2->cell_ID << ": " << "\t" << nu2 << endl;
+//                       }
+//
+//                       if(model.fitness != 0)
+//                       {
+//                           if(verbose > 1){
+//                               cout << "Update the grow parameters of daughter cells " << endl;
+//                           }
+//                       //     double gdiff;
+//                       //     if(nu1 > 0){
+//                       //         gdiff = 0;
+//                       //         // update_cell_growth(dcell1, ncell, model, loc_type, verbose);
+//                       //         for(int i = 0; i < NUM_LOC; i++){
+//                       //             gdiff += abs(dcell->loc_changes[i]);
+//                       //         }
+//                       //         // normalized by number of bins to avoid sharp change of net growth rate
+//                       //         gdiff = gdiff / NUM_LOC;
+//                       //     }
+//                       //     if(nu2 > 0) update_cell_growth(dcell2, ncell, model, loc_type, verbose);
+//                       // }
+//                   }
+//               }
+//               // death event if b<r<b+d
+//               else if(rb >= rbrate && rb < rbrate + rdrate) {
+//                   // cout << " death event" << endl;
+//                   this->curr_cells.erase(this->curr_cells.begin() + rindex);
+//
+//               }else{
+//
+//               }
+//           }
+//
+//           this->time_end += t;
+//           this->num_novel_mutation += nu;
+//
+//           if(verbose > 0){
+//               cout << "Generated " << nu << " mutations during time " << t << endl;
+//               if(verbose > 1) print_all_cells(this->curr_cells, verbose);
+//           }
+//       }
+//
+//
      /***************************************************************************************************************************/
 
 

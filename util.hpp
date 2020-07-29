@@ -58,7 +58,7 @@ const int DEC_PLACE = 10;
 // Position offset for migration clones
 const double MIGRATE_OFFSET = 100.0;
 
-enum SStat_type{LVAR, ADIFF, AVG, CMPL, DIFF, BP, ALTBIN};
+enum SStat_type{LVAR, ADIFF, AVG, CMPL, DIFF, BP, ALTBIN, ALTBIN_SEP, BP_BIN, ALL};
 enum Growth_type{ONLY_BIRTH, CHANGE_BIRTH, CHANGE_DEATH, CHANGE_BOTH};
 
 double BP_CUTOFF = 0.1;

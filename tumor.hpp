@@ -399,13 +399,56 @@ public:
         }
         cout << "\n";
         switch (stat_type) {
-            case LVAR: print_variance(loc_type); break;
-            case AVG: print_avg_cnp(); break;
-            case DIFF: print_diversity(); break;
-            case CMPL: print_cmpl_cnp(loc_type); break;
-            case BP: collect_private_subclonal_bps(verbose); break;
+            case LVAR:{ // 0
+                // print_variance(samples, loc_type);
+                print_variance_by_site(loc_type);
+                break;
+            }
+            case ADIFF: {
+                // cout << "Using pairwise difference across locations" << endl;
+                print_diversity_by_site();
+                break;
+            }
+            case AVG: {
+                // cout << "Using average CNP" << endl;
+                print_avg_cnp();
+                break;
+            }
+            case CMPL: {
+                print_cmpl_cnp(loc_type);
+                break;
+            }
+            case DIFF: {
+                // cout << "Using pairwise difference" << endl;
+                print_diversity_by_site();
+                break;
+            }
+            case BP: {
+                collect_private_subclonal_bps(verbose);
+                break;
+            }
             // print_breakpoints_stat(nsamples, loc_type, verbose); break;
-            case ALTBIN: print_bin_subclonal_stat(verbose); break;
+            case ALTBIN: {
+                print_bin_subclonal_stat(verbose);
+                break;
+            }
+            case ALTBIN_SEP: {
+                print_bin_subclonal_stat_by_type(verbose);
+                break;
+            }
+            case BP_BIN: {
+                collect_private_subclonal_bps(verbose);
+                print_bin_subclonal_stat_by_type(verbose);
+                break;
+            }
+            case ALL: {
+                collect_private_subclonal_bps(verbose);
+                print_bin_subclonal_stat_by_type(verbose);
+                // print_variance(samples, loc_type);
+                print_variance_by_site(loc_type);
+                print_diversity_by_site();
+                break;
+            }
             default: cout << "" << endl;
         }
         if(verbose > 0)     print_sample_cnp(outdir, suffix, verbose);
@@ -421,7 +464,7 @@ public:
                 // cout << s1->sample_ID << "," << s1->clone_ID << "\t" << s2->sample_ID << "," << s2->clone_ID << "\n";
                 int k = 0;
                 for(int i = 0; i < NUM_LOC; i++){
-                        cout << s1->sample_loc_change[i] << " ";
+                    cout << s1->sample_loc_change[i] << " ";
                 }
                 cout << ";";
         }
@@ -458,10 +501,12 @@ public:
 
 
     // Print the diversity vector between samples
-    void print_diversity(){
+    void print_diversity(const vector<Sample*>& samples){
         // compute pairwise differences of CNP between samples
-        vector<double> diff_pcn(NUM_LOC, 0.0);
+        // vector<double> diff_pcn(NUM_LOC, 0.0);
 
+        double avg_diff_all = 0;
+        int npair = 0;
         int nsample = samples.size();
         // cout << "There are " << nsample << " samples" << endl;
         for(int i = 0; i < nsample - 1; i++){
@@ -469,29 +514,48 @@ public:
                 Sample* s1 = samples[i];
                 Sample* s2 = samples[j];
                 // cout << s1->sample_ID << "," << s1->clone_ID << "\t" << s2->sample_ID << "," << s2->clone_ID << "\n";
-                int k = 0;
-                for(int i = 0; i < NUM_CHR; i++){
-                    for(int j = 0; j < CHR_BIN_SIZE[i]; j++){
-                        pair<int, int> pos(i,j);
-                        double cn1 = 0;
-                        double cn2 = 0;
-                        if(s1->sample_pcn.find(pos) != s1->sample_pcn.end()) cn1 = s1->sample_pcn[pos];
-                        if(s2->sample_pcn.find(pos) != s2->sample_pcn.end()) cn2 = s2->sample_pcn[pos];
-                        double d = abs(cn1 - cn2);
-                        // cout << i << "\t" << j << "\t" << d << "\n";
-                        diff_pcn[k++] += d;
-                    }
+                // int k = 0;
+                // for(int i = 0; i < NUM_CHR; i++){
+                //     for(int j = 0; j < CHR_BIN_SIZE[i]; j++){
+                //         pair<int, int> pos(i,j);
+                //         double cn1 = 0;
+                //         double cn2 = 0;
+                //         if(s1->sample_pcn.find(pos) != s1->sample_pcn.end()) cn1 = s1->sample_pcn[pos];
+                //         if(s2->sample_pcn.find(pos) != s2->sample_pcn.end()) cn2 = s2->sample_pcn[pos];
+                //         double d = abs(cn1 - cn2);
+                //         // cout << i << "\t" << j << "\t" << d << "\n";
+                //         diff_pcn[k++] += d;
+                //     }
+                // }
+                // assert(k == NUM_LOC);
+                double avg_diff = 0;
+                npair++;
+                for(int i = 0; i < NUM_LOC; i++){
+                    double cn1 = s1->sample_loc_change[i];
+                    double cn2 = s2->sample_loc_change[i];
+                    avg_diff += abs(cn1 - cn2);
                 }
-                assert(k == NUM_LOC);
+                // avg_diff = avg_diff / NUM_LOC;
+                // cout << avg_diff << '\n';
+                avg_diff_all += avg_diff;
             }
         }
-
-        for(int i = 0; i < diff_pcn.size(); i++){
-            // if(diff_pcn[i]!=0) cout << i << "\t" << diff_pcn[i] << "\n";
-            cout << diff_pcn[i] << endl;
-        }
+        avg_diff_all = (double) avg_diff_all / npair;
+        cout << avg_diff_all << endl;
+        // for(int i = 0; i < diff_pcn.size(); i++){
+        //     // if(diff_pcn[i]!=0) cout << i << "\t" << diff_pcn[i] << "\n";
+        //     cout << diff_pcn[i] << endl;
+        // }
     }
 
+
+    // Print the average of diversity between samples taken at a site
+    void print_diversity_by_site(){
+        for(auto c : clones){
+            // cout << "pairwise diversity for clone " << c->clone_ID << endl;
+            print_diversity(c->samples);
+        }
+    }
 
     void collect_bps(vector<string>& bps_prim_private, map<int, vector<string>>& bps_met_privates, int verbose=0){
         set<string> bps_mets;
@@ -783,7 +847,7 @@ public:
         int nsample = samples.size();
         // cout << "There are " << nsample << " samples" << endl;
         map<int, double> avg_nalter_sep;
-        map<int, int*> alter_indicator_sep;
+        map<int, int*> alter_indicator_sep;     // count number of times a bin is altered in a clone
         map<int, vector<Sample*>> samples_sep;
 
         for(auto c : this->clones){
@@ -808,15 +872,85 @@ public:
         for(auto cn: alter_indicator_sep){
             avg_nalter_sep[cn.first] = 0;
             for(int i = 0; i < NUM_LOC; i++){
+                // cout << cn.first << "\t" << cn.second[i] << endl;
                 if(cn.second[i] > 0 && cn.second[i] < samples_sep[cn.first].size())
                     avg_nalter_sep[cn.first]++;
             }
         }
 
+        // normalized by NUM_LOC to account for different choices of bin size (in real data)
         for(auto na : avg_nalter_sep){
             if(verbose > 0) cout << "Average number of altered bins for clone " << na.first << endl;
             na.second = na.second * 100 / NUM_LOC;
-            cout << na.second << endl;;
+            cout << na.second << endl;
+        }
+    }
+
+    // distinguish gain/loss to account for different size distribution
+    void print_bin_subclonal_stat_by_type(int verbose=0){
+        int nsample = samples.size();
+        // cout << "There are " << nsample << " samples" << endl;
+        map<int, double> avg_nalter_sep_gain;
+        map<int, double> avg_nalter_sep_loss;
+        map<int, int*> alter_indicator_sep_gain;     // count number of times a bin is altered in a clone
+        map<int, int*> alter_indicator_sep_loss;
+        map<int, vector<Sample*>> samples_sep;
+
+        for(auto c : this->clones){
+            alter_indicator_sep_gain[c->clone_ID] = new int[NUM_LOC];
+            alter_indicator_sep_loss[c->clone_ID] = new int[NUM_LOC];
+            for(int i = 0; i < NUM_LOC; i++){
+                alter_indicator_sep_gain[c->clone_ID][i] = 0;
+                alter_indicator_sep_loss[c->clone_ID][i] = 0;
+            }
+        }
+
+        for(int i = 0; i < nsample; i++){
+            Sample* s1 = samples[i];
+            samples_sep[s1->clone_ID].push_back(s1);
+
+            for(int i = 0; i < NUM_LOC; i++){
+                // cout << s1->sample_loc_change[i] << endl;
+                if(s1->sample_loc_change[i] >= BIN_CUOFF){
+                    alter_indicator_sep_gain[s1->clone_ID][i] += 1;
+                }
+                else if(s1->sample_loc_change[i] <= -BIN_CUOFF){
+                    alter_indicator_sep_loss[s1->clone_ID][i] += 1;
+                }else{
+
+                }
+            }
+        }
+
+        // exclude clonal regions
+        for(auto cn: alter_indicator_sep_gain){
+            avg_nalter_sep_gain[cn.first] = 0;
+            for(int i = 0; i < NUM_LOC; i++){
+                // cout << cn.first << "\t" << cn.second[i] << endl;
+                if(cn.second[i] > 0 && cn.second[i] < samples_sep[cn.first].size())
+                    avg_nalter_sep_gain[cn.first]++;
+            }
+        }
+
+        for(auto cn: alter_indicator_sep_loss){
+            avg_nalter_sep_loss[cn.first] = 0;
+            for(int i = 0; i < NUM_LOC; i++){
+                // cout << cn.first << "\t" << cn.second[i] << endl;
+                if(cn.second[i] > 0 && cn.second[i] < samples_sep[cn.first].size())
+                    avg_nalter_sep_loss[cn.first]++;
+            }
+        }
+
+        // normalized by NUM_LOC to account for different choices of bin size (in real data)
+        for(auto na : avg_nalter_sep_gain){
+            if(verbose > 0) cout << "Average number of gained bins for clone " << na.first << endl;
+            na.second = na.second * 100 / NUM_LOC;
+            cout << na.second << endl;
+        }
+        for(auto na : avg_nalter_sep_loss){
+            if(verbose > 0) cout << "Average number of lost bins for clone " << na.first << endl;
+            na.second = na.second * 100 / NUM_LOC;
+            cout << na.second << endl;
         }
     }
 
@@ -875,7 +1009,7 @@ public:
 
 
     // variance of CNs at each bin across all samples
-    void print_variance(int loc_type=BIN){
+    void print_variance(const vector<Sample*>& samples, int loc_type=BIN){
         // CNs at each bin across all samples
         map<int, VAR> bin_pcn;
         // map<int, NBIN> bin_cout;
@@ -891,12 +1025,26 @@ public:
             }
         }
 
+        // int nvar = 0;   // number of locations with variance != 0
+        double sum_var = 0;     // use sum to avoid stochascity of events on different locations
         for(int i = 0; i < NUM_LOC; i++){
             // assert(boost::accumulators::count(bin_pcn[i])==nsample);
             // Compute sample variance
-            cout << boost::accumulators::variance(bin_pcn[i]) * nsample / (nsample - 1) << endl;
+            double lvar = boost::accumulators::variance(bin_pcn[i]) * nsample / (nsample - 1);
+            // if(lvar > 0) nvar++;
+            // cout << boost::accumulators::variance(bin_pcn[i]) * nsample / (nsample - 1) << endl;
+            sum_var += lvar;
+        }
+        cout << sum_var << '\n';
+    }
+
+    // variance of CNs at each bin across all samples taken at one site
+    void print_variance_by_site(int loc_type=BIN){
+        for(auto c : clones){
+            print_variance(c->samples, loc_type);
         }
     }
+
 
     // Print CNP in a single file
     void print_sample_cnp(string outdir, string suffix, int verbose = 0){
