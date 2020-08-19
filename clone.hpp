@@ -19,6 +19,60 @@
 using namespace std;
 
 
+
+// Node of a binary lineage tree
+struct node {
+    int data;
+    node* left;
+    node* right;
+
+    node(int data)
+    {
+        this->data = data;
+        left = NULL;
+        right = NULL;
+    }
+};
+
+node* search_node(int key, node* p)
+{
+    // cout << "search node " << key << endl;
+    if(p == NULL) return NULL;
+
+    if(key == p->data){
+        return p;
+    }
+    else{
+        node* t = search_node(key, p->left);
+        if(t == NULL){
+            return search_node(key, p->right);
+        }
+        else{
+            return t;
+        }
+    }
+}
+
+// find all leaves below an internal node
+void get_leaves_below(node* p, vector<int>& nodes){
+    if(p == NULL) return;
+    if(p->left == NULL && p->right == NULL){
+        nodes.push_back(p->data);
+    }else{
+        get_leaves_below(p->left, nodes);
+        get_leaves_below(p->right, nodes);
+    }
+}
+
+void destroy_tree(node* root){
+    if(root != NULL)
+    {
+      destroy_tree(root->left);
+      destroy_tree(root->right);
+      delete root;
+    }
+}
+
 // The model of CNA evolution
 class Model{
 public:
@@ -45,7 +99,7 @@ public:
 
 
 /*
-to represent a subpopulation of cells sampled from a clone
+A Sample represents a subpopulation of cells sampled from a clone
 */
 class Sample{
 public:
@@ -242,7 +296,7 @@ public:
 
 
 /*
-to represent a population of cells
+A Clone represents a population of cells
 */
 class Clone
 {
@@ -254,6 +308,10 @@ public:
     int parent_ID;
 
     vector<Cell_ptr> curr_cells;   // only available cells at present
+
+    // added for simulating glands
+    vector<Cell_ptr> cells;   // all cells at present
+    // vector<string> bps; // breakpoints
 
     vector<int> id_curr_cells;      // Only store the IDs of cell to save space
 
@@ -351,6 +409,25 @@ public:
         this->time_end = ncell->time_occur;
     }
 
+
+    /*
+    Initialize the clone with clonal CNVs if exists
+    nu: The number of new mutations
+    */
+    void initialize_with_cnv_cmpl(const Cell_ptr ncell, Model model, int verbose = 0){
+        this->curr_cells.clear();
+        this->cells.clear();
+
+        this->ntot = 1;
+        this->num_novel_mutation = 0;
+
+        this->model = model.model_ID;
+
+        this->curr_cells.push_back(ncell);
+        this->cells.push_back(ncell);
+        this->time_end = ncell->time_occur;
+    }
+
     /*
     Initialize the clone with clonal CNVs if exists
     nu: The number of new mutations
@@ -442,7 +519,9 @@ public:
         double gdiff = 0;
 
         for(int i = 0; i < NUM_LOC; i++){
-            gdiff += abs(dcell->loc_changes[i]);
+            double rcn = abs(dcell->loc_changes[i] - START_GENOTYPE[i]);
+            gdiff += rcn;
+            if(rcn > 0) gdiff += 1;            
         }
         // normalized by number of bins to avoid sharp change of net growth rate
         gdiff = gdiff / NUM_LOC;
@@ -470,7 +549,6 @@ public:
                         dcell->death_rate = dcell->birth_rate - new_grate;
                     }
                 }
-
                 break;
             }
             case CHANGE_DEATH:{    // increase death rate
@@ -488,7 +566,6 @@ public:
                         dcell->birth_rate = dcell->death_rate + new_grate;
                     }
                 }
-
                 break;
             }
             case CHANGE_BOTH:{
@@ -523,7 +600,7 @@ public:
 
 
      // Simulate the growth of demes. All cells have the same birth/death rate
-     void grow(const Cell_ptr ncell, int size_deme, int verbose = 0, int restart = 1){
+        void grow(const Cell_ptr ncell, int size_deme, int verbose = 0, int restart = 1){
          if(restart == 1){
              initialize(ncell, verbose);
          }
@@ -690,6 +767,141 @@ public:
      }
 
 
+
+     /*
+        This method simulates tumour growth with a rejection-kinetic Monte Carlo algorithm.
+        Record all cells in the lineages, only suitable for a small number of cells
+        intput:
+         Nend -- the cell population size at the end
+         ncell -- the starting cell-> Given a cell in another clone, it can mimick migragation
+         model -- 0: neutral, 1: gradual, 2: punctuated
+         restart -- 1: start with a new cell; 0: continue with current state
+        output:
+         a tree-like structure. For each Cell, its children, occurence time, birth rate, death rate
+      */
+      void grow_with_cnv_cmpl(const Cell_ptr ncell, const Model& model, int Nend, node* root, int loc_type, double leap_size=0, int verbose = 0, int restart = 1, double tend = DBL_MAX){
+          // Initialize the simulation with one cell
+          if(restart == 1){
+              initialize_with_cnv_cmpl(ncell, model, verbose);
+          }
+
+          double t = 0;  // starting time, relative to the time of last end
+          int mut_ID = ncell->num_mut;
+          int nu = 0; // The number of new mutations, relative to the time of last end
+          int num_mut_event = 0; // count the number of times a CNA event is introduced
+
+          if(verbose > 0) cout << "\nSimulating tumour growth with CNAs under model " << model.model_ID << " at time " << ncell->time_occur + t << endl;
+
+          // && ncell->time_occur + t <= tend
+          while(this->curr_cells.size() < Nend) {
+              if (this->curr_cells.size() == 0) {
+                  t = 0;
+                  mut_ID = ncell->num_mut;
+                  nu = 0;
+                  initialize_with_cnv_cmpl(ncell, model, verbose);
+                  continue;
+              }
+              // print_all_cells(this->curr_cells, verbose);
+
+              // Choose a random cell from the current population
+              int rindex = myrng(this->curr_cells.size());
+              Cell_ptr rcell = this->curr_cells[rindex];
+              double rbrate = rcell->birth_rate;
+              double rdrate = rcell->death_rate;
+              int rID = rcell->cell_ID;
+
+              double rmax = get_rmax();
+              // increase time
+              double tau = -log(runiform(r, 0, 1));  // an exponentially distributed random variable
+              double deltaT = tau/(rmax * this->curr_cells.size());
+              t += deltaT;
+
+              if(ncell->time_occur + t > tend && this->curr_cells.size() >= MIN_NCELL){
+                  t = tend - ncell->time_occur;
+                  break;
+              }
+
+              // draw a random number
+              double rb = runiform(r, 0, rmax);
+              // cout << "random number " << rb << endl;
+              if(rb < rbrate){
+                  int rID = rcell->cell_ID;
+
+                  // cout << "root has data " << root->data << endl;
+                  node* parent = search_node(rID, root);
+                  // cout << "finish seraching" << endl;
+                  // cout << parent->data << endl;
+                  assert(parent->data == rID);
+
+                  Cell_ptr dcell1 = new Cell(++this->ntot, rID, ncell->time_occur + t);
+                  dcell1->copy_parent((*rcell));
+                  node* node1 = new node(dcell1->cell_ID);
+                  parent->left = node1;
+
+                  Cell_ptr dcell2 = new Cell(++this->ntot, rID, ncell->time_occur + t);
+                  dcell2->copy_parent((*rcell));
+                  dcell2->pos = get_neighbor_position(rcell->pos, POS_SIGMA);
+                  node* node2 = new node(dcell2->cell_ID);
+                  parent->right = node2;
+
+                  // daughter cells aquire nu new mutations, where nu ~ Poisson(mutation_rate)
+                  if (ncell->mutation_rate > 0) {
+                      int nu1 = dcell1->generate_CNV_pseudo(mut_ID, t, verbose);
+                      nu += nu1;
+                      int nu2 = dcell2->generate_CNV_pseudo(mut_ID, t, verbose);
+                      nu += nu2;
+
+                      if(verbose > 1){
+                          cout << "Number of mutations in cell " << dcell1->cell_ID << ": " << "\t" << nu1 << endl;
+                          cout << "Number of mutations in cell " << dcell2->cell_ID << ": " << "\t" << nu2 << endl;
+                      }
+
+                      if(model.fitness != 0)
+                      {
+                          if(verbose > 1){
+                              cout << "Update the grow parameters of daughter cells " << endl;
+                          }
+                          if(nu1 > 0) update_cell_growth(dcell1, ncell, model, loc_type, verbose);
+                          if(nu2 > 0) update_cell_growth(dcell2, ncell, model, loc_type, verbose);
+                      }
+                  }
+                  // Remove the parent cell from the list of current cells
+                  // if(rID != 1){
+                  //     delete (this->curr_cells[rindex]);
+                  //     this->curr_cells[rindex] = NULL;
+                  // }
+
+                  this->curr_cells.erase(this->curr_cells.begin() + rindex);
+                  this->curr_cells.push_back(dcell1);
+                  this->curr_cells.push_back(dcell2);
+
+                  this->cells.push_back(dcell1);
+                  this->cells.push_back(dcell2);
+              }
+              // death event if b<r<b+d
+              else if(rb >= rbrate && rb < rbrate + rdrate) {
+                  // cout << " death event" << endl;
+                  if(rID != 1){
+                      delete (this->curr_cells[rindex]);
+                      this->curr_cells[rindex] = NULL;
+                  }
+                  // this->curr_cells[rindex]->flag = -1;
+                  this->curr_cells.erase(this->curr_cells.begin() + rindex);
+              }else{
+
+              }
+          }
+
+          this->time_end += t;
+          this->num_novel_mutation += nu;
+
+          if(verbose > 0){
+              cout << "Generated " << nu << " mutations during time " << t << endl;
+              if(verbose > 1) print_all_cells(this->cells, verbose);
+          }
+      }
+
+
      // /*
      // generate CNAs in a pseudo (abstract) way and store in a global data structure
      // */
@@ -853,17 +1065,16 @@ public:
 
      /*********************** functions related to extracting information from simulated data **************************/
      // Get the CNPs of bulk sample (no noise)
-     void set_bulk_cnp_from_pseudo(double bulk_cnp[NUM_LOC], const vector<Cell_ptr>& cells) {
+     void set_bulk_cnp_from_pseudo(double avg_loc_change[NUM_LOC], const vector<Cell_ptr>& cells) {
          for(int i = 0; i < NUM_LOC; i++){
              for(auto cell : cells) {
-                 bulk_cnp[i] += cell->loc_changes[i];
+                 avg_loc_change[i] += cell->loc_changes[i];
              }
-             double avg_cn = bulk_cnp[i] / cells.size();
+             double avg_cn = avg_loc_change[i] / cells.size();
              double rcn =  rint(avg_cn * DEC_PLACE) / DEC_PLACE;  // 1 decimal place
-             bulk_cnp[i] = rcn;
+             avg_loc_change[i] = rcn;
          }
      }
-
 
     /********************************************************************************/
 

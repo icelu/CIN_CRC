@@ -18,14 +18,71 @@
 
 #include <unistd.h>
 
+#include <boost/filesystem.hpp>
+
+// For defining empirical_cumulative_distribution_function
+// #include <iterator>
+// #include <stdexcept>
+
+
 using namespace std;
+
+
+
+// template<class  RandomAccessContainer>
+// class empirical_cumulative_distribution_function {
+//     using Real = typename RandomAccessContainer::value_type;
+// public:
+//     empirical_cumulative_distribution_function( RandomAccessContainer && v, bool sorted = false)
+//     {
+//         if (v.size() == 0) {
+//             throw std::domain_error("At least one sample is required to compute an empirical CDF.");
+//         }
+//         m_v = std::move(v);
+//         if (!sorted) {
+//             std::sort(m_v.begin(), m_v.end());
+//         }
+//     }
+//
+//     auto operator()(Real x) const {
+//        if constexpr (std::is_integral_v<Real>)
+//        {
+//          if (x < m_v[0]) {
+//            return double(0);
+//          }
+//          if (x >= m_v[m_v.size()-1]) {
+//            return double(1);
+//          }
+//          auto it = std::upper_bound(m_v.begin(), m_v.end(), x);
+//          return static_cast<double>(std::distance(m_v.begin(), it))/static_cast<double>(m_v.size());
+//        }
+//        else
+//        {
+//          if (x < m_v[0]) {
+//            return Real(0);
+//          }
+//          if (x >= m_v[m_v.size()-1]) {
+//            return Real(1);
+//          }
+//          auto it = std::upper_bound(m_v.begin(), m_v.end(), x);
+//          return static_cast<Real>(std::distance(m_v.begin(), it))/static_cast<Real>(m_v.size());
+//       }
+//     }
+//
+//      RandomAccessContainer&& return_data() {
+//         return std::move(m_v);
+//     }
+//
+// private:
+//      RandomAccessContainer m_v;
+// };
+//
 
 
 typedef map<pair<int, int>, int> pcn;   // copy number at a position
 typedef map<pair<int, int>, double> dpcn;   // copy number at a position
 
 
-const int N_MUT_TYPE = 5;
 // 22 for CRC data, 23 for PDO data
 // const int NUM_CHR = 23;
 const int NUM_CHR = 22;
@@ -34,16 +91,19 @@ const int NORM_PLOIDY = 2;
 // Number of chromsomes affected in a multipolar event
 const int MULTI_NCHR = 16;
 
-// The number of bins for each chromosome. Each bin corresponds to a window of size 500,000 bp. 313,115 for chr X, Y
+// The number of bins for each chromosome (GRCh 38). Each bin corresponds to a window of size 500,000 bp. 313,115 for chr X, Y
 // const vector<int> CHR_BIN_SIZE{498,485,397,381,364,342,319,291,277,268,271,267,229,215,204,181,167,161,118,129,94,102};
 // const int NUM_LOC = 5760;
 // const int MEAN_GAIN_SIZE = 62;
 // const int MEAN_LOSS_SIZE = 110;
-// The number of bins for each chromosome. Each bin corresponds to a window of size 1,500,000 bp.
-const vector<int> CHR_BIN_SIZE{166,162,133,127,122,114,107,97,93,90,91,89,77,72,68,61,56,54,40,43,32,34};
-const int NUM_LOC = 1928;
-const int MEAN_GAIN_SIZE = 21;
-const int MEAN_LOSS_SIZE = 37;
+// The number of bins for each chromosome (GRCh 38). Each bin corresponds to a window of size 1,500,000 bp.
+// const vector<int> CHR_BIN_SIZE{166,162,133,127,122,114,107,97,93,90,91,89,77,72,68,61,56,54,40,43,32,34};
+// const int NUM_LOC = 1928;
+
+// used for simulating glands
+const vector<int> CHR_BIN_SIZE{499,487,397,383,362,343,319,293,283,272,271,268,231,215,206,181,163,157,119,127,97,103};
+const int NUM_LOC = 5776;
+
 const int MAX_DEME_SIZE = 10000;
 
 const vector<double> LOC_PROBS_vec(NUM_LOC, 1.0/NUM_LOC);
@@ -63,6 +123,13 @@ enum Growth_type{ONLY_BIRTH, CHANGE_BIRTH, CHANGE_DEATH, CHANGE_BOTH};
 
 double BP_CUTOFF = 0.1;
 double BIN_CUOFF = 0.1;
+
+int MEAN_GAIN_SIZE = 21;
+int MEAN_LOSS_SIZE = 37;
+vector<int> real_gain_sizes;
+vector<int> real_loss_sizes;
+
+double START_GENOTYPE[NUM_LOC] = {0};
 
 gsl_rng * r;
 std::mt19937 eng;
@@ -144,7 +211,6 @@ int rchoose(gsl_rng* r, const std::vector<double>& rates){
 }
 
 
-
 void set_outdir(string outdir, int verbose = 0){
     const char* path = outdir.c_str();
     boost::filesystem::path dir(path);
@@ -155,7 +221,8 @@ void set_outdir(string outdir, int verbose = 0){
 }
 
 
-// Read strings separated by space into a vector
+// Read strings separated by space into a vector.
+// num: the number of element in the string. If not given, assume it is the first number in the string
 template <typename T>
 void get_vals_from_str(vector<T>& vals, string str_vals, int num=0){
     assert(str_vals != "");
@@ -274,5 +341,15 @@ void print_bulk_cn(string sample, map<pair<int, int>, T>& bulk_cnp, ofstream& fc
     fcn << sample << "\t" << prev_chr << "\t" << start << "\t" << prev_bin << "\t" << prev_rcn << endl;
 }
 
+
+// Sampling from the empirical distribution function ecdf is the same as resampling (with replacement, equal probabilities) from the sample y. ecdf(y) is just a recoding of the sample, the sample points in y correspond to the jump points (discontinuity points) in the ecdf. (https://stats.stackexchange.com/questions/383376/sampling-from-empirical-distribution)
+int sample_from_empirical_cdf(const vector<int>& cna_sizes){
+    // auto ecdf = empirical_cumulative_distribution_function(std::move(sizes), true);
+    // // cout << ecdf(10000000) << endl;
+    // // cout << ecdf.return_data().size() << endl;
+    // double u = gsl_rng_uniform (r);
+    int u = myrng(cna_sizes.size());
+    return cna_sizes[u];
+}
 
 #endif

@@ -32,8 +32,6 @@ class Tumor{
 public:
     int tumor_ID;
 
-    vector<Clone*> demes;   // For all clones
-
     vector<Clone*> clones;   // For all clones
     vector<Clone*> metastasis;
     vector<Clone*> primary;
@@ -64,27 +62,32 @@ public:
     }
 
 
-    // Simulate the growth of demes
+    // Simulate the growth of demes (crypts). Used for tracking deme relationships
+    // A deme represents a specific population of cells, say cells in a crypt
     // The first deme is generated via birth-and-death process, beginning with a single transformed founding tumor cell
     // Once a deme exceeds the maximum size (10,000 cells), it splits into two offspring demes via random sampling of cells
-    // , const vector<int>& time_migration
-    void simulate_deme_partition(const Cell_ptr start_cell, int ndeme = 100000, int max_deme_size = 10000, int verbose = 0){
-        int num_clone = 0;
-        Clone* s = new Clone(num_clone++, -1);
-        s->grow(start_cell, max_deme_size, verbose, 1);
-        this->demes.push_back(s);
+    void simulate_deme_partition(const Cell_ptr start_cell, int ndeme = 100, int max_deme_size = 10000, string fname = "", int verbose = 0){
+        ofstream fout(fname);
+        string header = "ID\tParent\tNcell";
+        fout << header << endl;
 
-        while (this->demes.size() < ndeme) {
+        int num_clone = 1;
+        Clone* s = new Clone(num_clone, 0);
+        s->grow(start_cell, max_deme_size, verbose, 1);
+        this->clones.push_back(s);
+
+        while (this->clones.size() < ndeme) {
             // randomly select a deme to grow and split
-            // cout << "Deme number " << this->demes.size() << endl;
-            int rindex = myrng(this->demes.size());
-            Clone* s0 = this->demes[rindex];
+            // cout << "Deme number " << this->clones.size() << endl;
+            int rindex = myrng(this->clones.size());
+            Clone* s0 = this->clones[rindex];
             while (s0->id_curr_cells.size() < max_deme_size) {
                 s0->grow(start_cell, max_deme_size, verbose, 0);
             }
             // split deme
-            Clone* s1 = new Clone(num_clone++, s0->clone_ID);
-            Clone* s2 = new Clone(num_clone++, s0->clone_ID);
+            Clone* s1 = new Clone(num_clone+1, s0->clone_ID);
+            Clone* s2 = new Clone(num_clone+2, s0->clone_ID);
+            num_clone += 2;
             for(auto c : s0->id_curr_cells){
                 double rc = runiform(r, 0, 1);
                 if(rc < 0.5){
@@ -94,24 +97,25 @@ public:
                 }
             }
             // keep grow the current demes
-            this->demes.push_back(s1);
-            this->demes.push_back(s2);
+            this->clones.push_back(s1);
+            this->clones.push_back(s2);
 
-            this->demes.erase(this->demes.begin() + rindex);
+            fout << s0->clone_ID << "\t"  << s1->clone_ID << "\t" << s1->id_curr_cells.size() << endl;
+            fout << s0->clone_ID << "\t"  << s2->clone_ID << "\t" << s2->id_curr_cells.size() << endl;
+
+            delete (this->clones[rindex]);
+            this->clones[rindex] = NULL;
+            this->clones.erase(this->clones.begin() + rindex);
         }
         if(verbose > 0){
-            for(auto d : demes){
+            for(auto d : this->clones){
                 cout << d->clone_ID << "\t"  << d->parent_ID << "\t"  << d->id_curr_cells.size() << endl;
             }
         }
     }
 
-    // Sample regions from all the current demes. Each region is composed of 10-100 demes
-    void sample_demes(int nregion){
 
-    }
-
-
+    /*********************** Functions related to primary-metastasis samples *************************************/
     /*
     All clones end at the same time
     */
@@ -623,7 +627,6 @@ public:
 
     // only consider subclonal events to exclude the effect of starting cell
     void collect_private_subclonal_bps(int verbose=0){
-        set<string> bps_all;
         map<int, set<string>> bps_sep;
         map<int, map<string, int>> bps_sep_count;
         map<int, vector<Sample*>> samples_sep;
@@ -640,8 +643,6 @@ public:
             }
 
             samples_sep[s1->clone_ID].push_back(s1);
-
-            bps_all.insert(s1->sample_bps.begin(), s1->sample_bps.end());
 
             bps_sep[s1->clone_ID].insert(s1->sample_bps.begin(), s1->sample_bps.end());
 

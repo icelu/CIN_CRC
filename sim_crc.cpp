@@ -18,6 +18,7 @@ int main(int argc, char const *argv[]) {
     int mode;
 
     int ndeme;
+    string fdeme;
 
     double leap_size;
 
@@ -32,7 +33,7 @@ int main(int argc, char const *argv[]) {
     double birth_rate, death_rate;
     double mutation_rate;
     // parameters for mean of dup/del size distributions
-    int mean_gain_size, mean_loss_size;
+    // int mean_gain_size, mean_loss_size;
     int loc_type;
 
     int model_ID;
@@ -68,6 +69,7 @@ int main(int argc, char const *argv[]) {
       ("mode", po::value<int>(&mode)->default_value(0), "mode of simulation. 0: single clone; 1: multi samples")
 
       ("ndeme", po::value<int>(&ndeme)->default_value(0), "number of demes in the final tumor")
+      ("fdeme", po::value<string>(&fdeme)->default_value(""), "file with deme (gland) relationships")
 
       ("nsample", po::value<string>(&nsample_vals)->default_value(""), "number of samples to take at each clone (NSAMPLE1 ... NSAMPLEn)")
 
@@ -82,8 +84,8 @@ int main(int argc, char const *argv[]) {
       ("death_rate", po::value<double>(&death_rate)->default_value(0), "death rate")
       ("Nend,e", po::value<int>(&Nend)->default_value(100), "size of final cell populations")
       ("mutation_rate", po::value<double>(&mutation_rate)->default_value(0), "mutation rate of CNAs")
-      ("mean_gain_size", po::value<int>(&mean_gain_size)->default_value(0), "mean size of segment gain (in terms of bins)")
-      ("mean_loss_size", po::value<int>(&mean_loss_size)->default_value(0), "mean size of segment loss (in terms of bins)")
+      ("mean_gain_size", po::value<int>(&MEAN_GAIN_SIZE)->default_value(0), "mean size of segment gain (in terms of bins)")
+      ("mean_loss_size", po::value<int>(&MEAN_LOSS_SIZE)->default_value(0), "mean size of segment loss (in terms of bins)")
       // ("num_chr", po::value<int>(&num_chr)->default_value(22), "number of chromosomes to consider")
 
       ("bp_cutoff", po::value<double>(&BP_CUTOFF)->default_value(0.1), "threshold to determine whether a breakpoint can be detected or not")
@@ -117,7 +119,7 @@ int main(int argc, char const *argv[]) {
             return 1;
         }
         if(vm.count("version")){
-            cout << "sim_cin [version 0.1], a program to simulate copy number variations along a cell division tree" << endl;
+            cout << "sim_crc [version 0.1], a program to simulate copy number variations in primary-metastasis multi-region samples" << endl;
             return 1;
         }
         po::notify(vm);
@@ -154,7 +156,7 @@ int main(int argc, char const *argv[]) {
 
     if(ndeme > 0){
         if(verbose > 0) cout << "Simulating deme partition history" << endl;
-        tumor.simulate_deme_partition(start_cell, ndeme, MAX_DEME_SIZE, verbose);
+        tumor.simulate_deme_partition(start_cell, ndeme, MAX_DEME_SIZE, fdeme, verbose);
         return 0;
     }
 

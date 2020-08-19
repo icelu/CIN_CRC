@@ -121,6 +121,7 @@ public:
     int parent_ID;
     int clone_ID;
 
+    // int flag;   // whether the cell is alive or not. 0:new, 1:divided, -1: death
     double time_occur;
 
     int is_sampled;
@@ -145,6 +146,7 @@ public:
     Cell& operator=(const Cell& other) = default;
     Cell& operator=(Cell&& other) = default;
 
+
     Cell() {
         cell_ID = 0;
         parent_ID = 0;
@@ -158,6 +160,10 @@ public:
 
         mutation_rate = 0;
         num_mut = 0;
+
+        for(int i = 0; i < NUM_LOC; i++){
+            loc_changes[i] = START_GENOTYPE[i];
+        }
     }
 
 
@@ -166,14 +172,19 @@ public:
         this->parent_ID = parent_ID;
 
         this->time_occur = time_occur;
-        this->is_sampled = 0;
+        // this->is_sampled = 0;
+        //
+        // this->birth_rate = birth_rate;
+        // this->death_rate = death_rate;
+        //
+        // this->mutation_rate = 0;
+        // this->num_mut = 0;
 
-        this->birth_rate = birth_rate;
-        this->death_rate = death_rate;
-
-        this->mutation_rate = 0;
-        this->num_mut = 0;
+        // for(int i = 0; i < NUM_LOC; i++){
+        //     loc_changes[i] = START_GENOTYPE[i];
+        // }
     }
+
 
     Cell(int cell_ID, int parent_ID, double birth_rate, double death_rate, double mutation_rate, double time_occur){
         this->cell_ID = cell_ID;
@@ -188,6 +199,10 @@ public:
 
         this->mutation_rate = mutation_rate;
         this->num_mut = 0;
+
+        for(int i = 0; i < NUM_LOC; i++){
+            loc_changes[i] = START_GENOTYPE[i];
+        }
     }
 
 
@@ -206,7 +221,7 @@ public:
     void copy_parent(const Cell& ncell){
         this->clone_ID = ncell.clone_ID;
 
-        this->time_occur = ncell.time_occur;
+        // this->time_occur = ncell.time_occur;
         this->is_sampled = ncell.is_sampled;
         this->pos = ncell.pos;
 
@@ -234,14 +249,14 @@ public:
     */
     int generate_CNV_pseudo(int& mut_ID, double time_occur, int verbose = 0){
         int nu = gsl_ran_poisson(r, mutation_rate);
+
         if(nu <= 0) return nu;
 
-        if(verbose > 1 && nu > 0) cout << "Generating " << nu << " CNAs under rate " << mutation_rate << " in cell " << cell_ID << endl;
+        if(verbose > 1 && nu > 0) cout << "Generating " << nu << " CNAs under mutation rate " << mutation_rate << " in cell " << cell_ID << endl;
 
         gsl_ran_discrete_t* dis_loc = gsl_ran_discrete_preproc(NUM_LOC, LOC_PROBS);
         double u = 0;
         int start = gsl_ran_discrete(r, dis_loc);
-        double msize = 0;
         int len = 0;
         int end = 0;
 
@@ -249,8 +264,9 @@ public:
             u = runiform(r, 0, 1);
             len = 1;    // add 1 to avoid 0 length
             if(u < 0.5){  // gain
-                msize = MEAN_GAIN_SIZE;
-                if(msize > 1) len = ceil(gsl_ran_exponential(r, msize));
+                // len = ceil(gsl_ran_exponential(r, MEAN_GAIN_SIZE));
+                len = real_gain_sizes[myrng(real_gain_sizes.size())];
+                // cout << "gain size " << len << endl;
                 end = start + len;
                 if(end > NUM_LOC) end = NUM_LOC;
                 for(int i = start; i < end; i++){
@@ -258,11 +274,16 @@ public:
                 }
 
             }else{
-                msize = MEAN_LOSS_SIZE;
-                if(msize > 1) len = ceil(gsl_ran_exponential(r, msize));
+                // len = ceil(gsl_ran_exponential(r, MEAN_LOSS_SIZE));
+                len = real_loss_sizes[myrng(real_loss_sizes.size())];
+                // cout << "loss size " << len << endl;
                 end = start + len;
                 if(end > NUM_LOC) end = NUM_LOC;
                 for(int i = start; i < end; i++){
+                    if(loc_changes[i] == 0){
+                        // cout << "No more copies to lost!" << endl;
+                        continue;
+                    }
                     loc_changes[i]--;
                 }
             }
