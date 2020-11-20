@@ -20,15 +20,25 @@ using namespace std;
 
 
 
-// Node of a binary lineage tree
+// Node of a binary lineage tree, used for sampling
 struct node {
     int data;
     node* left;
     node* right;
+    int flag; // whether the node is available (dead) or not
 
     node(int data)
     {
         this->data = data;
+        this->flag = 0;
+        left = NULL;
+        right = NULL;
+    }
+
+    node(int data, int flag)
+    {
+        this->data = data;
+        this->flag = flag;
         left = NULL;
         right = NULL;
     }
@@ -64,6 +74,17 @@ void get_leaves_below(node* p, vector<int>& nodes){
     }
 }
 
+// find all leaves below an internal node which are available
+void get_leaves_below_avail(node* p, vector<int>& nodes){
+    if(p == NULL) return;
+    if(p->left == NULL && p->right == NULL && p->flag >= 0){
+        nodes.push_back(p->data);
+    }else{
+        get_leaves_below_avail(p->left, nodes);
+        get_leaves_below_avail(p->right, nodes);
+    }
+}
+
 void destroy_tree(node* root){
     if(root != NULL)
     {
@@ -77,16 +98,19 @@ void destroy_tree(node* root){
 class Model{
 public:
     int model_ID;
-    int genotype_diff;
-    int growth_type;
-    double fitness;
+    int genotype_diff;    // whether or not to consider genotype differences
+    int growth_type;   // how cells grow under selection
+    double fitness;    // the strength of selection
+    int use_alpha;    // use the model based on alpha, in which fitness is alpha; Otherwise fitness is classic selection coefficient
     double min_diff = 0;  // The mininal genotype differences that will cause fitness changes
+    int norm_by_bin = 1;  // normalized genotype differences by the number of bins
 
     Model(){
         model_ID = 0;
         genotype_diff = 0;
         growth_type = 0;
-        fitness=0;
+        use_alpha = 0;
+        fitness = 0;
     }
 
     Model(int model_ID, int genotype_diff, int growth_type, double fitness){
@@ -94,6 +118,15 @@ public:
         this->genotype_diff = genotype_diff;
         this->growth_type = growth_type;
         this->fitness = fitness;
+    }
+
+    Model(int model_ID, int genotype_diff, int growth_type, double fitness, int use_alpha, int norm_by_bin = 1){
+        this->model_ID = model_ID;
+        this->genotype_diff = genotype_diff;
+        this->growth_type = growth_type;
+        this->fitness = fitness;
+        this->use_alpha = use_alpha;
+        this->norm_by_bin = norm_by_bin;
     }
 };
 
@@ -324,6 +357,9 @@ public:
 
     int ntot;   // total number of cells, used to increase cell ID
     int num_novel_mutation;
+    // set<int> muts;  // unique set of mutations present in all cells of the clone
+    map<string, double> muts_freq;
+
     double time_end;    // ending time of the simulation
 
     int model;  // the model of evolution
@@ -512,95 +548,126 @@ public:
     }
 
 
-    // Update the birth/death rate of a cell (only occur when there are new mutations in daughter cells)
-    // Different fitness values may apply at different locations of the genome
-    void update_cell_growth(Cell_ptr dcell, const Cell_ptr ncell, const Model& model, int loc_type, int verbose = 0) {
+    /*
+    * Key function when introducing selection into the stochastic branching process
+    * Update the birth/death rate of a cell (only occur when there are new mutations in daughter cells) according to that of a reference cell
+    * TODO: Different fitness values may apply at different locations of the genome
+    * Two models considered here:
+    * When genotype_diff > 0, selection model is based on alpha (negative selection -- positive alpha)
+    * Otherwise, selection model is based on classic selection coefficient (negative selection -- negative s)
+    * Genotype differences are considered to impose different selective advantages to different cells
+    */
+    void update_cell_growth(Cell_ptr dcell, const Cell_ptr start_cell, const Model& model, int loc_type, int verbose = 0) {
         // Introduce selection to cells with CNAs using specified fitness
         double gdiff = 0;
 
-        for(int i = 0; i < NUM_LOC; i++){
-            double rcn = abs(dcell->loc_changes[i] - START_GENOTYPE[i]);
-            gdiff += rcn;
-            if(rcn > 0) gdiff += 1;            
+        if(model.use_alpha > 0 || model.genotype_diff > 0){
+          if(model.genotype_diff == 3){
+            if(verbose > 1) cout << "Using number of mutations to measure genotype difference" << endl;
+            gdiff += dcell->num_mut - start_cell->num_mut;
+          }else if(model.genotype_diff == 2){
+            if(verbose > 1) cout << "Using relative CN to measure genotype difference" << endl;
+            for(int i = 0; i < NUM_LOC; i++){
+              double rcn = abs(dcell->loc_changes[i] - START_GENOTYPE[i]);
+              gdiff += rcn;
+            }
+          }else{  // use PGA to measure genotype difference
+            if(verbose > 1) cout << "Using percentage of genome altered to measure genotype difference" << endl;
+            for(int i = 0; i < NUM_LOC; i++){
+              double rcn = abs(dcell->loc_changes[i] - START_GENOTYPE[i]);
+              if(rcn > 0) gdiff += 1;   // just count #bins to have a fixed rang
+            }
+          }
+          // normalized by number of bins to avoid sharp change of net growth rate, will be in (0,1) when PGA is used to compute genotype difference
+          if(model.norm_by_bin == 1){
+            if(verbose > 1) cout << "Nomalize genotype differences by number of bins" << endl;
+            gdiff = gdiff / NUM_LOC;
+          }
+          assert((1 + gdiff * model.fitness) > 0);
+        }else{
+          assert(1 + model.fitness > 0);
         }
-        // normalized by number of bins to avoid sharp change of net growth rate
-        gdiff = gdiff / NUM_LOC;
 
         switch (model.growth_type) {
             case ONLY_BIRTH: {
-                if(model.genotype_diff > 0){
-                    dcell->birth_rate = ncell->birth_rate / (1 + gdiff * model.fitness);
-                }
-                else{
-                    if(gdiff >= model.min_diff) dcell->birth_rate = ncell->birth_rate * (1 + model.fitness);
+                if(model.use_alpha > 0){
+                    dcell->birth_rate = start_cell->birth_rate / (1 + gdiff * model.fitness);
+                }else{
+                    // To ignore the effect of genotype difference, set gdiff = 1
+                    if(model.genotype_diff > 0 && gdiff >= model.min_diff){
+                       dcell->birth_rate = start_cell->birth_rate * (1 + gdiff * model.fitness);
+                    }else{
+                       dcell->birth_rate = start_cell->birth_rate * (1 + model.fitness);
+                    }
                 }
                 break;
             }
-            case CHANGE_BIRTH: {   // decrease birth rate
+            case CHANGE_BIRTH: {   // decrease birth rate only
                 double new_grate = 0;
-                if(model.genotype_diff > 0){
-                    new_grate = (ncell->birth_rate - ncell->death_rate) / (1 + gdiff * model.fitness);
-                    dcell->birth_rate = ncell->death_rate + new_grate;
+                if(model.use_alpha > 0){
+                    new_grate = (start_cell->birth_rate - start_cell->death_rate) / (1 + gdiff * model.fitness);
+                    dcell->birth_rate = start_cell->death_rate + new_grate;
                     dcell->death_rate = dcell->birth_rate - new_grate;
                 }else{
-                    if(gdiff >= model.min_diff){
-                        new_grate = (ncell->birth_rate - ncell->death_rate) * (1 + model.fitness);
-                        dcell->birth_rate = ncell->death_rate + new_grate;
-                        dcell->death_rate = dcell->birth_rate - new_grate;
+                    if(model.genotype_diff > 0 && gdiff >= model.min_diff){
+                        new_grate = (start_cell->birth_rate - start_cell->death_rate) * (1 + gdiff * model.fitness);
+                    }else{
+                        new_grate = (start_cell->birth_rate - start_cell->death_rate) * (1 + model.fitness);
                     }
+                    dcell->birth_rate = start_cell->death_rate + new_grate;
+                    dcell->death_rate = dcell->birth_rate - new_grate;
                 }
                 break;
             }
-            case CHANGE_DEATH:{    // increase death rate
+            case CHANGE_DEATH:{    // increase death rate only
                 double new_grate = 0;
-                if(model.genotype_diff > 0){
-                    new_grate = (ncell->birth_rate - ncell->death_rate) / (1 + gdiff * model.fitness);
-                    double new_drate = (ncell->birth_rate - new_grate);
-                    dcell->death_rate = new_drate > dcell->death_rate ? new_drate : dcell->death_rate;
-                    dcell->birth_rate = dcell->death_rate + new_grate;
+                if(model.use_alpha > 0){
+                    new_grate = (start_cell->birth_rate - start_cell->death_rate) / (1 + gdiff * model.fitness);
                 }else{
-                    if(gdiff >= model.min_diff){
-                        new_grate = (ncell->birth_rate - ncell->death_rate) * (1 + model.fitness);
-                        double new_drate = (ncell->birth_rate - new_grate);
-                        dcell->death_rate = new_drate > dcell->death_rate ? new_drate : dcell->death_rate;
-                        dcell->birth_rate = dcell->death_rate + new_grate;
+                    if(model.genotype_diff > 0 && gdiff >= model.min_diff){
+                        new_grate = (start_cell->birth_rate - start_cell->death_rate) * (1 + gdiff * model.fitness);
+                    }else{
+                        new_grate = (start_cell->birth_rate - start_cell->death_rate) * (1 + model.fitness);
                     }
                 }
+                double new_drate = (start_cell->birth_rate - new_grate);
+                dcell->death_rate = new_drate > dcell->death_rate ? new_drate : dcell->death_rate;
+                dcell->birth_rate = dcell->death_rate + new_grate;
                 break;
             }
             case CHANGE_BOTH:{
                 double new_grate = 0;
-                if(model.genotype_diff > 0){
-                    new_grate = (ncell->birth_rate - ncell->death_rate) / (1 + gdiff * model.fitness);
+                if(model.use_alpha > 0){
+                    new_grate = (start_cell->birth_rate - start_cell->death_rate) / (1 + gdiff * model.fitness);
                 }else{
-                    if(gdiff >= model.min_diff){
-                        new_grate = (ncell->birth_rate - ncell->death_rate) * (1 + model.fitness);
+                    if(model.genotype_diff > 0 && gdiff >= model.min_diff){
+                        new_grate = (start_cell->birth_rate - start_cell->death_rate) * (1 + gdiff * model.fitness);
                     }else{
-                        new_grate = (ncell->birth_rate - ncell->death_rate);
+                        new_grate = (start_cell->birth_rate - start_cell->death_rate) * (1 + model.fitness);
                     }
                 }
                 double rn = runiform(r, 0, 1);
                 if(rn < 0.5){
-                    dcell->birth_rate = ncell->death_rate + new_grate;
+                    dcell->birth_rate = start_cell->death_rate + new_grate;
                     dcell->death_rate = dcell->birth_rate - new_grate;
                 }else{
-                    double new_drate = (ncell->birth_rate - new_grate);
+                    double new_drate = (start_cell->birth_rate - new_grate);
                     dcell->death_rate = new_drate > dcell->death_rate ? new_drate : dcell->death_rate;
                     dcell->birth_rate = dcell->death_rate + new_grate;
                 }
                 break;
             }
-                 default: cout << "" << endl;
-             }
+          default: cout << "" << endl;
+        }
 
         if(verbose > 1){
-            cout << "new birth (death) rate for cell "<< dcell->cell_ID  << " is " << dcell->birth_rate << " (" << dcell->death_rate << ") with genotype difference " << gdiff << " and fitness " << model.fitness << endl;
+            cout << "new birth-death rate for cell "<< dcell->cell_ID << " is " << dcell->birth_rate << "-" << dcell->death_rate << " with fitness " << model.fitness << " and genotype difference " << gdiff << endl;
         }
     }
 
 
      // Simulate the growth of demes. All cells have the same birth/death rate
-        void grow(const Cell_ptr ncell, int size_deme, int verbose = 0, int restart = 1){
+    void grow(const Cell_ptr ncell, int size_deme, int verbose = 0, int restart = 1){
          if(restart == 1){
              initialize(ncell, verbose);
          }
@@ -665,7 +732,7 @@ public:
          if(restart == 1) initialize_with_cnv(ncell, model, verbose);
 
          double t = 0;  // starting time, relative to the time of last end
-         int mut_ID = ncell->num_mut;
+         int mut_ID = ncell->num_mut;  // used to distinguish different mutations
          int nu = 0; // The number of new mutations, relative to the time of last end
          int num_mut_event = 0; // count the number of times a CNA event is introduced
 
@@ -704,7 +771,9 @@ public:
              double rb = runiform(r, 0, rmax);
              // cout << "random number " << rb << endl;
              if(rb < rbrate){
-                 int rID = rcell->cell_ID;
+                 // if(verbose > 1){
+                 //   cout << "Select cell " << rID << " with " << rcell->num_mut << " mutations and birth rate " << rcell->birth_rate << ", death rate " << rcell->death_rate << " to divide" << endl;
+                 // }
 
                  Cell_ptr dcell1 = new Cell(++this->ntot, rID, ncell->time_occur + t);
                  dcell1->copy_parent((*rcell));
@@ -721,8 +790,8 @@ public:
                      nu += nu2;
 
                      if(verbose > 1){
-                         cout << "Number of mutations in cell " << dcell1->cell_ID << ": " << "\t" << nu1 << endl;
-                         cout << "Number of mutations in cell " << dcell2->cell_ID << ": " << "\t" << nu2 << endl;
+                         cout << "Number of new mutations in cell " << dcell1->cell_ID << ": " << "\t" << nu1 << endl;
+                         cout << "Number of new mutations in cell " << dcell2->cell_ID << ": " << "\t" << nu2 << endl;
                      }
 
                      if(model.fitness != 0)
@@ -747,6 +816,9 @@ public:
              // death event if b<r<b+d
              else if(rb >= rbrate && rb < rbrate + rdrate) {
                  // cout << " death event" << endl;
+                 // if(verbose > 1){
+                 //   cout << "Select cell " << rID << " with " << rcell->num_mut << " mutations and birth rate " << rcell->birth_rate << ", death rate " << rcell->death_rate << " to disappear" << endl;
+                 // }
                  if(rID != 1){
                      delete (this->curr_cells[rindex]);
                      this->curr_cells[rindex] = NULL;
@@ -770,35 +842,35 @@ public:
 
      /*
         This method simulates tumour growth with a rejection-kinetic Monte Carlo algorithm.
-        Record all cells in the lineages, only suitable for a small number of cells
+        Record all cells in the lineages, only suitable for a small number of cells (e.g. simulating gland as cell)
         intput:
          Nend -- the cell population size at the end
-         ncell -- the starting cell-> Given a cell in another clone, it can mimick migragation
+         start_cell -- the starting cell-> Given a cell in another clone, it can mimick migragation
          model -- 0: neutral, 1: gradual, 2: punctuated
          restart -- 1: start with a new cell; 0: continue with current state
         output:
          a tree-like structure. For each Cell, its children, occurence time, birth rate, death rate
       */
-      void grow_with_cnv_cmpl(const Cell_ptr ncell, const Model& model, int Nend, node* root, int loc_type, double leap_size=0, int verbose = 0, int restart = 1, double tend = DBL_MAX){
+      void grow_with_cnv_cmpl(const Cell_ptr start_cell, const Model& model, int Nend, node* root, int loc_type, double leap_size=0, int verbose = 0, int restart = 1, double tend = DBL_MAX){
           // Initialize the simulation with one cell
           if(restart == 1){
-              initialize_with_cnv_cmpl(ncell, model, verbose);
+              initialize_with_cnv_cmpl(start_cell, model, verbose);
           }
 
           double t = 0;  // starting time, relative to the time of last end
-          int mut_ID = ncell->num_mut;
+          int mut_ID = start_cell->num_mut;
           int nu = 0; // The number of new mutations, relative to the time of last end
           int num_mut_event = 0; // count the number of times a CNA event is introduced
 
-          if(verbose > 0) cout << "\nSimulating tumour growth with CNAs under model " << model.model_ID << " at time " << ncell->time_occur + t << endl;
+          if(verbose > 0) cout << "\nSimulating tumour growth with CNAs under model " << model.model_ID << " at time " << start_cell->time_occur + t << endl;
 
-          // && ncell->time_occur + t <= tend
+          // && start_cell->time_occur + t <= tend
           while(this->curr_cells.size() < Nend) {
               if (this->curr_cells.size() == 0) {
                   t = 0;
-                  mut_ID = ncell->num_mut;
+                  mut_ID = start_cell->num_mut;
                   nu = 0;
-                  initialize_with_cnv_cmpl(ncell, model, verbose);
+                  initialize_with_cnv_cmpl(start_cell, model, verbose);
                   continue;
               }
               // print_all_cells(this->curr_cells, verbose);
@@ -810,42 +882,56 @@ public:
               double rdrate = rcell->death_rate;
               int rID = rcell->cell_ID;
 
+              // cout << "root has data " << root->data << endl;
+              node* parent = search_node(rID, root);
+              // cout << "finish seraching" << endl;
+              // cout << parent->data << endl;
+              assert(parent->data == rID);
+
               double rmax = get_rmax();
               // increase time
               double tau = -log(runiform(r, 0, 1));  // an exponentially distributed random variable
               double deltaT = tau/(rmax * this->curr_cells.size());
               t += deltaT;
 
-              if(ncell->time_occur + t > tend && this->curr_cells.size() >= MIN_NCELL){
-                  t = tend - ncell->time_occur;
-                  break;
-              }
-
               // draw a random number
               double rb = runiform(r, 0, rmax);
               // cout << "random number " << rb << endl;
               if(rb < rbrate){
-                  int rID = rcell->cell_ID;
+                  if(verbose > 1){
+                    cout << "Select cell " << rID << " with " << rcell->num_mut << " mutations and birth rate " << rcell->birth_rate << ", death rate " << rcell->death_rate << " to divide" << endl;
+                    // output the number of mutations and birth rates for all the current cells
+                    cout << "#mutations for all the current cells:";
+                    vector<int> nmuts;
+                    for(auto c : this->curr_cells){
+                      nmuts.push_back(c->num_mut);
+                      // cout << " " << c->num_mut << ";";
+                      // << "," << c->birth_rate << "," << c->death_rate << ";";
+                    }
+                    sort(nmuts.begin(), nmuts.end());
+                    for(auto n : nmuts){
+                      cout << " " << n << ";";
+                    }
+                    cout << endl;
+                  }
 
-                  // cout << "root has data " << root->data << endl;
-                  node* parent = search_node(rID, root);
-                  // cout << "finish seraching" << endl;
-                  // cout << parent->data << endl;
-                  assert(parent->data == rID);
-
-                  Cell_ptr dcell1 = new Cell(++this->ntot, rID, ncell->time_occur + t);
+                  int cID1 = this->ntot + 1;
+                  Cell_ptr dcell1 = new Cell(cID1, rID, start_cell->time_occur + t);
                   dcell1->copy_parent((*rcell));
                   node* node1 = new node(dcell1->cell_ID);
                   parent->left = node1;
 
-                  Cell_ptr dcell2 = new Cell(++this->ntot, rID, ncell->time_occur + t);
+                  int cID2 = this->ntot + 2;
+                  Cell_ptr dcell2 = new Cell(cID2, rID, start_cell->time_occur + t);
                   dcell2->copy_parent((*rcell));
                   dcell2->pos = get_neighbor_position(rcell->pos, POS_SIGMA);
                   node* node2 = new node(dcell2->cell_ID);
                   parent->right = node2;
 
+                  this->ntot = this->ntot + 2;
+
                   // daughter cells aquire nu new mutations, where nu ~ Poisson(mutation_rate)
-                  if (ncell->mutation_rate > 0) {
+                  if (start_cell->mutation_rate > 0) {
                       int nu1 = dcell1->generate_CNV_pseudo(mut_ID, t, verbose);
                       nu += nu1;
                       int nu2 = dcell2->generate_CNV_pseudo(mut_ID, t, verbose);
@@ -861,16 +947,13 @@ public:
                           if(verbose > 1){
                               cout << "Update the grow parameters of daughter cells " << endl;
                           }
-                          if(nu1 > 0) update_cell_growth(dcell1, ncell, model, loc_type, verbose);
-                          if(nu2 > 0) update_cell_growth(dcell2, ncell, model, loc_type, verbose);
+                          if(nu1 > 0) update_cell_growth(dcell1, start_cell, model, loc_type, verbose);
+                          if(nu2 > 0) update_cell_growth(dcell2, start_cell, model, loc_type, verbose);
                       }
                   }
                   // Remove the parent cell from the list of current cells
-                  // if(rID != 1){
-                  //     delete (this->curr_cells[rindex]);
-                  //     this->curr_cells[rindex] = NULL;
-                  // }
-
+                  if(verbose > 1) cout << "remove parent cell " << rID << endl;
+                  parent->flag = -1;
                   this->curr_cells.erase(this->curr_cells.begin() + rindex);
                   this->curr_cells.push_back(dcell1);
                   this->curr_cells.push_back(dcell2);
@@ -880,12 +963,10 @@ public:
               }
               // death event if b<r<b+d
               else if(rb >= rbrate && rb < rbrate + rdrate) {
-                  // cout << " death event" << endl;
-                  if(rID != 1){
-                      delete (this->curr_cells[rindex]);
-                      this->curr_cells[rindex] = NULL;
+                  if(verbose > 1){
+                    cout << "Select cell " << rID << " with " << rcell->num_mut << " mutations and birth rate " << rcell->birth_rate << ", death rate " << rcell->death_rate << " to disappear" << endl;
                   }
-                  // this->curr_cells[rindex]->flag = -1;
+                  parent->flag = -1;
                   this->curr_cells.erase(this->curr_cells.begin() + rindex);
               }else{
 

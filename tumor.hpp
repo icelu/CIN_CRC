@@ -116,6 +116,18 @@ public:
 
 
     /*********************** Functions related to primary-metastasis samples *************************************/
+    // check how much diversity there is assuming only neutral evolution
+    // void simulate_neutral_mutations(double t, const Model& start_model){
+    //   int num_clone = 0;
+    //   Clone* s0 = new Clone(num_clone++, "Metastasis", 0);
+    //   s0->grow_with_cnv(start_cell, start_model, loc_type, leap_size, verbose);
+    //   if(verbose > 0){
+    //     cout << "Simulation stops at time " << s0->time_end << " with " << time_migration[0] << " cells at address " << s0 << endl;
+    //   }
+    //
+    // }
+
+
     /*
     All clones end at the same time
     */

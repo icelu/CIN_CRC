@@ -114,6 +114,7 @@ class Cell;
 // typedef shared_ptr<Cell> Cell_ptr;
 typedef Cell* Cell_ptr;
 
+
 class Cell
 {
 public:
@@ -136,7 +137,9 @@ public:
     double mutation_rate;
 
     // parameters related to storing mutations
-    int num_mut;    // number of mutations
+    int num_mut;    // number of total mutations
+    vector<string> muts;  // IDs of mutations in one cell, used to count #unique mutations in a random population of cells
+
     int loc_changes[NUM_LOC] = {0};
 
 
@@ -231,6 +234,8 @@ public:
         this->mutation_rate = ncell.mutation_rate;
         this->num_mut = ncell.num_mut;
 
+        this->muts = ncell.muts;
+
         for(int i = 0; i < NUM_LOC; i++){
             loc_changes[i] = ncell.loc_changes[i];
         }
@@ -287,6 +292,8 @@ public:
                     loc_changes[i]--;
                 }
             }
+            mut_ID = mut_ID + 1;
+            this->muts.push_back(to_string(this->clone_ID) + "_" + to_string(mut_ID));
             this->num_mut++;
         }
 

@@ -28,7 +28,7 @@
 using namespace std;
 
 
-
+// class from boost library
 // template<class  RandomAccessContainer>
 // class empirical_cumulative_distribution_function {
 //     using Real = typename RandomAccessContainer::value_type;
@@ -106,8 +106,8 @@ const int NUM_LOC = 5776;
 
 const int MAX_DEME_SIZE = 10000;
 
-const vector<double> LOC_PROBS_vec(NUM_LOC, 1.0/NUM_LOC);
-const double* LOC_PROBS = &LOC_PROBS_vec[0];
+vector<double> LOC_PROBS_vec(NUM_LOC, 1.0/NUM_LOC);
+double* LOC_PROBS = &LOC_PROBS_vec[0];
 
 
 enum CNA_type{BIN, ARM, PSEUDO, BPOINT};
@@ -351,5 +351,6 @@ int sample_from_empirical_cdf(const vector<int>& cna_sizes){
     int u = myrng(cna_sizes.size());
     return cna_sizes[u];
 }
+
 
 #endif
