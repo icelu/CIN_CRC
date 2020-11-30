@@ -38,7 +38,7 @@ public:
 
     vector<Clone*> clones;      // For all glands
     vector<Clone*> samples;     // For selected glands
-    vector<Cell_ptr> sampled_cells;     // For selected glands
+    vector<Cell_ptr> sampled_cells;     // For selected glands, empty when all cells are included
     vector<int> sample_IDs;
     vector<int> sample_IDs_side1;
     vector<int> sample_IDs_side2;
@@ -276,26 +276,26 @@ void  print_sstat(const vector<int>& ids, map<int, double*>& avg_loc_changes, in
     if(verbose > 0){
         cout << "Printing summary statistics" << endl;
     }
-    // LVAR, ADIFF, AVG, CMPL, DIFF, BP, ALTBIN, ALTBIN_SEP, BP_BIN, ALL
+
     switch (stat_type) {
-        case LVAR:{ // 0
+        case 0:{ // 0
             // print_variance(avg_loc_changes, loc_type);
             print_mut_freq(min_freq, max_freq, delta);
             break;
         }
-        case ADIFF: { // 1
+        case 1: { // 1
             // cout << "Using pairwise difference across locations" << endl;
             print_bin_subclonal_stat_by_type(avg_loc_changes, 1, verbose);
             print_pairwise_divergence(ids, avg_loc_changes, 1, verbose);
             break;
         }
-        case AVG: { // 2
+        case 2: { // 2
             // cout << "Using pairwise difference across locations" << endl;
             print_bin_subclonal_stat_by_type(avg_loc_changes, 0, verbose);
             print_pairwise_divergence(ids, avg_loc_changes, 1,  verbose);
             break;
         }
-        case DIFF: {  // 4
+        case 4: {  // 4
             // cout << "Using pairwise difference" << endl;
             print_bin_subclonal_stat_by_type(avg_loc_changes, 0, verbose);
             print_pairwise_divergence(ids, avg_loc_changes, 0, verbose);
@@ -304,26 +304,26 @@ void  print_sstat(const vector<int>& ids, map<int, double*>& avg_loc_changes, in
             print_pairwise_mismatch(verbose);
             break;
         }
-        case BP: {  // 5
+        case 5: {  // 5
             // collect_private_subclonal_bps(avg_loc_changes, verbose);
             print_nmut_per_gland();
             break;
         }
-        case ALTBIN: {  // 6
+        case 6: {  // 6
             print_bin_subclonal_stat_by_type(avg_loc_changes, 0, verbose);
             print_variance(avg_loc_changes, loc_type, 0, use_std);
             break;
         }
-        case ALTBIN_SEP: { // 7
+        case 7: { // 7
             print_bin_subclonal_stat_by_type(avg_loc_changes, 1, verbose);
             break;
         }
-        case BP_BIN: { //8
+        case 8: { // 8
             collect_private_subclonal_bps(avg_loc_changes, verbose);
             // print_bin_subclonal_stat_by_type(avg_loc_changes, verbose);
             break;
         }
-        case ALL: {  // 9
+        case 9: {  // 9
             if(verbose > 0) cout << "All summary statistics" << endl;
             // collect_private_subclonal_bps(avg_loc_changes, verbose);
             print_bin_subclonal_stat_by_type(avg_loc_changes, 1, verbose);
@@ -397,7 +397,7 @@ void collect_private_subclonal_bps(const map<int, double*>& avg_loc_changes, int
     // #unique breakpoints
     cout << bps_sep.size() << endl;
 
-    if(verbose > 0){
+    if(verbose > 1){
       bps_common.resize(it_common - bps_common.begin());
       cout << bps_common.size() << endl;
 
@@ -408,7 +408,7 @@ void collect_private_subclonal_bps(const map<int, double*>& avg_loc_changes, int
       bps_private.resize(it_private - bps_private.begin());
       cout << bps_private.size() << endl;
 
-      if(verbose >= 1){
+      // if(verbose > 1){
           cout << "Common breakpoints:";
           for(auto bp : bps_common){
               cout << "\t" << bp;
@@ -426,12 +426,14 @@ void collect_private_subclonal_bps(const map<int, double*>& avg_loc_changes, int
               cout << "\t" << bp;
           }
           cout << endl;
-      }
+      // }
     }
 }
 
 
-// distinguish gain/loss to account for different size distribution
+// distinguish gain/loss to account for different size distribution (not much help)
+// avg_loc_changes stores the absolute copy numbers for each gland
+//  frac_genome_alt = length(which(x!=y)) / length(x)
 void print_bin_subclonal_stat_by_type(const map<int, double*>& avg_loc_changes, int by_type = 1, int verbose=0){
     int nsample = avg_loc_changes.size();
     // cout << "There are " << nsample << " samples" << endl;
@@ -664,9 +666,10 @@ void print_variance(const map<int, double*>& avg_loc_changes, int loc_type=BIN, 
 Divergence of CNAs across samples within each patient was quantified by computing the
 pairwise divergence between samples.
 Specifically, this was the proportion of altered bins
-(copy number not equal to 2 in either or both samples) that had different copy number in
+(copy number not equal to ploidy in either or both samples) that had different copy number in
 each sample.
 ids: The ID of each clone (cell), sorted
+avg_loc_changes: the absolute copy numbers of each location (bin) along the genome
 */
 void print_pairwise_divergence(const vector<int>& ids, map<int, double*>& avg_loc_changes, int use_cdf = 1, int verbose = 0){
     vector<double> alters;  // proportion of altered bins that are different for each pair of glands
@@ -689,34 +692,40 @@ void print_pairwise_divergence(const vector<int>& ids, map<int, double*>& avg_lo
                 if(round(lchanges1[k]) != NORM_PLOIDY || round(lchanges2[k]) != NORM_PLOIDY){
                     num_alter++;
                     if(round(lchanges2[k]) != round(lchanges1[k])){
+                        // cout << round(lchanges1[k]) << "\t" << round(lchanges2[k]) << endl;
                         num_diff++;
                     }
                 }
             }
 
             double prop_alter = 0;
-            if(num_alter > 0) prop_alter = (double) num_diff / num_alter;
+            if(num_alter > 0 && num_diff > 0) prop_alter = (double) num_diff / num_alter;
             alters.push_back(prop_alter);
             ppalters(prop_alter);
-            // cout << prop_alter << endl;
+            // cout << num_diff << "\t" << num_alter << "\t" << prop_alter << endl;
         }
     }
 
     for(int i = 0; i < alters.size(); i++){
       avg_alter += alters[i];
+      // cout << avg_alter << endl;
     }
+    // alters.size() should equal to ntotal
+    // cout << alters.size() << endl;
+
+    // weird numbers when running on Mac
     avg_alter = avg_alter / alters.size();
     cout << avg_alter << endl;
+
     double var_alter = boost::accumulators::variance(ppalters);
     cout << var_alter << endl;
-    // count number of pairs smaller than a threshold
-    // map<double, int> num_pairs;
-    if(verbose > 0){
-        cout << "total number of pairs " << ntotal << endl;
-        cout << "count number of pairs smaller than a threshold" << endl;
+
+    if(verbose > 1){
+        cout << "total pairs of glands for computing pairwise divergence " << ntotal << endl;
     }
 
     if(use_cdf == 1){
+      // count number of pairs smaller than a threshold
       for(double i = 0.1; i <= 0.5; i += 0.1){
           // cout << i << endl;
           int npair = 0;
@@ -744,19 +753,27 @@ void get_sampled_cells(){
   assert(sampled_cells.size() == this->sample_IDs.size());
 }
 
+
 /*
 Print number of segragting mutations (mutations present in at least one sample)
 Under infinite site model, each site corresponds to a mutation
 */
 void print_num_uniq_mut(int verbose = 0){
-  get_sampled_cells();
   set<string> all_muts;
 
-  for(auto c : sampled_cells){
-    copy(c->muts.begin(), c->muts.end(), inserter(all_muts,all_muts.end()));
+  if(this->sample_IDs.size() == 0){
+    for(auto c : this->clones[0]->curr_cells){
+      copy(c->muts.begin(), c->muts.end(), inserter(all_muts, all_muts.end()));
+    }
+  }else{
+    get_sampled_cells();
+
+    for(auto c : sampled_cells){
+      copy(c->muts.begin(), c->muts.end(), inserter(all_muts, all_muts.end()));
+    }
   }
 
-  if(verbose > 0) cout << "Number of unique mutation is " << endl;
+  if(verbose > 1) cout << "Number of unique mutation is " << endl;
   cout << all_muts.size() << endl;
 }
 
@@ -772,17 +789,24 @@ void print_pairwise_mismatch(int verbose = 0){
     vector<int> ndiffs;  // proportion of altered bins that are different for each pair of glands
     double avg_ndiff = 0;
 
-    get_sampled_cells();
-    // cout << this->sample_IDs.size() << endl;
+    vector<Cell_ptr> cells_to_consider;
 
-    sort(sampled_cells.begin(), sampled_cells.end(), compare_ptr2cell);
+    if(this->sample_IDs.size() == 0){
+      cells_to_consider = this->clones[0]->curr_cells;
+    }else{
+      get_sampled_cells();
+      cells_to_consider = this->sampled_cells;
+    }
+
+    // cout << this->sample_IDs.size() << endl;
+    sort(cells_to_consider.begin(), cells_to_consider.end(), compare_ptr2cell);
     // for(auto c1 : sampled_cells){
     //   cout << c1->cell_ID << endl;
     // }
 
     // cells are stored in a vector of pointer, hard to access by int IDs directly
-    for(auto c1 : sampled_cells){
-        for(auto c2 : sampled_cells){
+    for(auto c1 : cells_to_consider){
+        for(auto c2 : cells_to_consider){
           // only count sampled cells
           if (c2->cell_ID <= c1->cell_ID) continue;
           // Find the number of different mutations between two samples (cells)
@@ -799,18 +823,17 @@ void print_pairwise_mismatch(int verbose = 0){
     cout << avg_ndiff << '\n';
 
     // count number of pairs smaller than a threshold
-    // map<double, int> num_pairs;
-    if(verbose > 0){
-        cout << "total number of pairs " << ndiffs.size() << endl;
-        for(int i = 0; i < ndiffs.size(); i++){
-          cout << ndiffs[i] << endl;
-        }
+    if(verbose > 1){
+        cout << "total number of glands for computing pairwise mismatch " << ndiffs.size() << endl;
+        // for(int i = 0; i < ndiffs.size(); i++){
+        //   cout << ndiffs[i] << endl;
+        // }
     }
 }
 
 
 
-// Print CNP of selected glands in a single file
+// Print CNP of selected glands in a single file (for gland fission model)
 void print_sample_cnp(const map<int, double*>& avg_loc_changes, string outdir, string suffix, int verbose = 0){
     string fname = outdir + "gland_cn"  + suffix + ".txt";
     ofstream fcn;
@@ -818,7 +841,7 @@ void print_sample_cnp(const map<int, double*>& avg_loc_changes, string outdir, s
 
     for(auto s : avg_loc_changes){
         // if(verbose > 0) cout << "Print CNP of gland " << s->clone_ID << endl;
-        if(verbose > 0) cout << "Print CNP of gland " << s.first << endl;
+        if(verbose > 1) cout << "Print CNP of gland " << s.first << endl;
         // Find the average CNP of all cells
         // double avg_loc_change[NUM_LOC] = {0};
         // s->set_bulk_cnp_from_pseudo(avg_loc_change, s->curr_cells);
@@ -835,7 +858,7 @@ void print_sample_cnp(const map<int, double*>& avg_loc_changes, string outdir, s
 }
 
 
-// Print CNP of selected glands in a single file
+// Print CNP of selected glands in a single file (for gland as cell model)
 void print_cell_cnp(Clone* gland, string outdir, string suffix, int verbose = 0){
     string fname = outdir + "gland_cn"  + suffix + ".txt";
     ofstream fcn;
@@ -846,7 +869,7 @@ void print_cell_cnp(Clone* gland, string outdir, string suffix, int verbose = 0)
     for(auto s : gland->curr_cells){
         if(sample_IDs.size() > 0 && find(sample_IDs.begin(), sample_IDs.end(), s->cell_ID) == sample_IDs.end()) continue;
 
-        if(verbose > 0) cout << "Print CNP of gland " << s->cell_ID << endl;
+        if(verbose > 1) cout << "Print CNP of gland " << s->cell_ID << endl;
 
         pcn cnp;
         loc2pcn(s->loc_changes, cnp, verbose);

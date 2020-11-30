@@ -29,16 +29,10 @@ int main(int argc, char const *argv[]) {
     string fgain;
     string floss;
 
-    double min_freq;
-    double max_freq;
-    double delta;
-    int use_std;
-
     double leap_size;
 
     string num_glands; // number of samples to take at each side
 
-    int Nend;
     double birth_rate, death_rate;
     double mutation_rate;
     // parameters for mean of dup/del size distributions
@@ -54,7 +48,10 @@ int main(int argc, char const *argv[]) {
 
     int stat_type;
     double frac_cutoff;
-    // int num_chr;
+    double min_freq;
+    double max_freq;
+    double delta;
+    int use_std;
 
     string outdir, suffix; // output
 
@@ -70,56 +67,59 @@ int main(int argc, char const *argv[]) {
       ("help,h", "produce help message")
       ;
 
+    // parameters that are essential to simulations
     po::options_description required("Required parameters");
     required.add_options()
+      ("mode,m", po::value<int>(&mode)->default_value(0), "mode of simulation. 0: gland as cell; 1: gland fission when reaching certain size")
+
+      ("birth_rate,b", po::value<double>(&birth_rate)->default_value(1), "birth rate")
+      ("death_rate,d", po::value<double>(&death_rate)->default_value(0), "death rate")
+
+      ("mutation_rate,r", po::value<double>(&mutation_rate)->default_value(0.2), "copy number alteration (CNA) rate per division")
+      ("mean_gain_size", po::value<int>(&MEAN_GAIN_SIZE)->default_value(MEAN_GAIN_SIZE), "mean size of segment gain (in terms of bins)")
+      ("mean_loss_size", po::value<int>(&MEAN_LOSS_SIZE)->default_value(MEAN_LOSS_SIZE), "mean size of segment loss (in terms of bins)")
+      // by default, not consider chromosome boundaries to save computation
+      ("loc_type", po::value<int>(&loc_type)->default_value(2), "type of CNA unit. 0: BIN-level at one chromosome; 1: arm-level; 2: BIN-level across multiple chromsomes")
+
+      ("ndeme,n", po::value<int>(&ndeme)->default_value(1000), "number of glands when simulation stops")
+      ("max_deme_size", po::value<int>(&max_deme_size)->default_value(10000), "maximum number of cells in a gland before gland fission")
+      ("num_glands,g", po::value<string>(&num_glands)->default_value("2 30 20"), "the number of sides followed by the number of glands taken at different sides of a crypt, separated by space")
+
       ("odir,o", po::value<string>(&outdir)->required()->default_value("./"), "output directory")
        ;
 
     po::options_description optional("Optional parameters");
     optional.add_options()
-      ("mode", po::value<int>(&mode)->default_value(0), "mode of simulation. 0: gland as cell; 1: gland fission")
-
-      ("ndeme", po::value<int>(&ndeme)->default_value(0), "number of demes in the final tumor")
-      ("max_deme_size", po::value<int>(&max_deme_size)->default_value(10000), "maximum number of cells in a deme")
-      ("num_glands", po::value<string>(&num_glands)->default_value("2 1 1"), "the number of sides followed by the number of glands taken at different sides of a crypt, separated by space")
-      ("fdeme", po::value<string>(&fdeme)->default_value(""), "file with deme (gland) relationships")
-      ("fmut", po::value<string>(&fmut)->default_value(""), "file with mutation counting informaton")
+      // input files which specifies #sampled glands and CNA informaton
       ("fgenotype", po::value<string>(&fgenotype)->default_value(""), "TSV file with starting genotype of the first cell")
       ("flprob", po::value<string>(&flprob)->default_value(""), "TSV file with probability of mutation at each location")
       ("fgain", po::value<string>(&fgain)->default_value(""), "TSV file with size of all copy number gains in the real data")
       ("floss", po::value<string>(&floss)->default_value(""), "TSV file with size of all copy number losses in the real data")
 
-      ("stat_type", po::value<int>(&stat_type)->default_value(0), "type of summary statistics. 0: variance; 1: clone-pairwise differences; 2: average CNP; 3: complete CNP; 4: sample-pairwise differences")
-      ("loc_type", po::value<int>(&loc_type)->default_value(0), "type of CNA unit. 0: BIN-level at one chromsome; 1: arm-level; 2: BIN-level across multiple chromsomes")
+      // options related to model of evolution
+      ("model", po::value<int>(&model_ID)->default_value(0), "model of evolution. 0: neutral; 1: selection")
+      ("use_alpha", po::value<int>(&use_alpha)->default_value(1), "whether or not to use alpha in selection model. 0: use selection coefficient; 1: use alpha")
+      ("fitness,f", po::value<double>(&fitness)->default_value(0), "fitness values of mutatants")
+      ("genotype_diff", po::value<int>(&genotype_diff)->default_value(3), "type of karyotype difference (L1 distance) in simulating selection. 0: no; 1: L1 distance of CN; 2: Hamming distance of CN; 3: number of new mutations")
+      ("norm_by_bin", po::value<int>(&norm_by_bin)->default_value(0), "whether or not to normalize karyotype difference by number of bins (segments) in the genome. 0: no; 1: yes")
+      ("growth_type,t", po::value<int>(&growth_type)->default_value(0), "Type of growth when adding selection. 0: only birth; 1: change birth rate; 2: change death rate; 3: change both birth or death rate")
 
+      // options related to summary statistics
+      ("stat_type,s", po::value<int>(&stat_type)->default_value(4), "type of summary statistics. 0: variance; 1: clone-pairwise differences; 2: average CNP; 3: complete CNP; 4: sample-pairwise differences")
       ("min_freq", po::value<double>(&min_freq)->default_value(0.0), "minimal mutation frequency to consider")
       ("max_freq", po::value<double>(&max_freq)->default_value(0.25), "maximal mutation frequency to consider")
       ("delta", po::value<double>(&delta)->default_value(0.025), "step size of mutation frequency histogram")
-
-      ("use_std", po::value<int>(&use_std)->default_value(0), "whether or not to use standard deviation")
-
-      ("leap_size", po::value<double>(&leap_size)->default_value(0.0), "step size of tau-leaping to accelerate the simulations")
+      ("use_std", po::value<int>(&use_std)->default_value(0), "whether or not to use standard deviation of pairwise divergence. If not, the variance is output")
+      ("bp_cutoff", po::value<double>(&BP_CUTOFF)->default_value(BP_CUTOFF), "threshold to determine whether a breakpoint can be detected or not")
+      ("bin_cutoff", po::value<double>(&BIN_CUOFF)->default_value(BIN_CUOFF), "threshold to determine whether a bin can be detected as altered or not")
       ("frac_cutoff", po::value<double>(&frac_cutoff)->default_value(0.5), "cutoff of counting breakpoints")
 
-      ("birth_rate", po::value<double>(&birth_rate)->default_value(1), "birth rate")
-      ("death_rate", po::value<double>(&death_rate)->default_value(0), "death rate")
-      ("Nend,e", po::value<int>(&Nend)->default_value(100), "size of final cell populations")
-      ("mutation_rate", po::value<double>(&mutation_rate)->default_value(0), "mutation rate of CNAs")
-      ("mean_gain_size", po::value<int>(&MEAN_GAIN_SIZE)->default_value(0), "mean size of segment gain (in terms of bins)")
-      ("mean_loss_size", po::value<int>(&MEAN_LOSS_SIZE)->default_value(0), "mean size of segment loss (in terms of bins)")
-      // ("num_chr", po::value<int>(&num_chr)->default_value(22), "number of chromosomes to consider")
+      // options related to output
+      ("suffix", po::value<string>(&suffix)->default_value(""), "suffix of output file")
+      ("fdeme", po::value<string>(&fdeme)->default_value(""), "file with deme (gland) relationships")
+      ("fmut", po::value<string>(&fmut)->default_value(""), "file with mutation counting informaton")
 
-      ("bp_cutoff", po::value<double>(&BP_CUTOFF)->default_value(0.1), "threshold to determine whether a breakpoint can be detected or not")
-      ("bin_cutoff", po::value<double>(&BIN_CUOFF)->default_value(0.1), "threshold to determine whether a bin can be detected as altered or not")
-
-      ("model", po::value<int>(&model_ID)->default_value(0), "model of evolution. 0: neutral; 1: selection")
-      ("use_alpha", po::value<int>(&use_alpha)->default_value(1), "whether or not to use alpha in selection model. 0: use selection coefficient; 1: use alpha")
-      ("fitness", po::value<double>(&fitness)->default_value(0), "fitness values of mutatants")
-      ("genotype_diff", po::value<int>(&genotype_diff)->default_value(3), "type of genotype difference (L1 distance) in simulating selection. 0: no; 1: L1 distance of CN; 2: Hamming distance of CN; 3: number of new mutations")
-      ("norm_by_bin", po::value<int>(&norm_by_bin)->default_value(0), "whether or not to normalize genotype difference by number of bins (segments) in the genome. 0: no; 1: yes")
-      ("growth_type", po::value<int>(&growth_type)->default_value(0), "Type of growth. 0: only birth; 1: change birth rate; 2: change death rate; 3: change both birth and death rate")
-
-      ("suffix,s", po::value<string>(&suffix)->default_value(""), "suffix of output file")
+      ("leap_size", po::value<double>(&leap_size)->default_value(0.0), "step size of tau-leaping to accelerate the simulations (not used for now)")
 
       ("seed", po::value<unsigned long>(&seed)->default_value(0), "seed used for generating random numbers")
       ("verbose", po::value<int>(&verbose)->default_value(0), "verbose level (0: default, 1: print information of final cells; 2: print information of all cells)")
@@ -136,7 +136,7 @@ int main(int argc, char const *argv[]) {
             return 1;
         }
         if(vm.count("version")){
-            cout << "sim_gland [version 0.1], a program to simulate copy number variations along a stochastic branching tree" << endl;
+            cout << "simgland [version 0.1], a program to simulate copy number variations along a stochastic branching tree" << endl;
             return 1;
         }
         po::notify(vm);
@@ -150,7 +150,7 @@ int main(int argc, char const *argv[]) {
 
     if(verbose > 0){
         cout << "Random seed: " << rseed << endl;
-        cout << "Simulating bulk WGS and WES samples from glands sampled from a patient crypt" << endl;
+        cout << "Simulating copy numbers called from bulk WGS and WES samples of glands sampled from a patient crypt" << endl;
         cout << "Fitness:\t" << fitness << endl;
         cout << "Mutation rate:\t" << mutation_rate << endl;
     }
@@ -161,21 +161,25 @@ int main(int argc, char const *argv[]) {
     //   << BOOST_VERSION % 100                // patch level
     //   << std::endl;
 
+    // read real CNA sizes from file
     string size;
-
-    ifstream fcn_gain(fgain);
-    while(getline(fcn_gain, size)){
-        real_gain_sizes.push_back(atof(size.c_str()));
+    if(fgain !=  ""){
+      ifstream fcn_gain(fgain);
+      while(getline(fcn_gain, size)){
+          real_gain_sizes.push_back(atof(size.c_str()));
+      }
+      // cout << real_gain_sizes.size() << endl;
     }
-    // cout << real_gain_sizes.size() << endl;
 
-    ifstream fcn_loss(floss);
-    while(getline(fcn_loss, size)){
-        real_loss_sizes.push_back(atof(size.c_str()));
+    if(floss !=  ""){
+      ifstream fcn_loss(floss);
+      while(getline(fcn_loss, size)){
+          real_loss_sizes.push_back(atof(size.c_str()));
+      }
+      // cout << real_loss_sizes.size() << endl;
     }
-    // cout << real_loss_sizes.size() << endl;
 
-
+    // read real mode genotype from file
     if(fgenotype != ""){
         if(verbose > 0)
             cout << "Assigning a genotype to the starting cell" << endl;
@@ -201,6 +205,10 @@ int main(int argc, char const *argv[]) {
           // std::cout << std::endl;
         }
         infile.close();
+    }else{
+      for(int i = 0; i < NUM_LOC; i++){
+        START_GENOTYPE[i] = NORM_PLOIDY;
+      }
     }
     // for(auto cn : start_genotype){
     //     cout << cn << endl;
@@ -210,6 +218,8 @@ int main(int argc, char const *argv[]) {
     // for(int i = 0; i < NUM_LOC; i++){
     //     cout << LOC_PROBS[i] << endl;
     // }
+
+    // read real #CNAs per bin from file
     if(flprob != ""){
         if(verbose > 0)
             cout << "Assigning a mutation probability to each location" << endl;
@@ -240,6 +250,7 @@ int main(int argc, char const *argv[]) {
     // for(int i = 0; i < NUM_LOC; i++){
     //     cout << LOC_PROBS[i] << endl;
     // }
+
 
     Glands glands;
     Cell_ptr start_cell = new Cell(1, 0, birth_rate, death_rate, mutation_rate, 0);
@@ -275,7 +286,7 @@ int main(int argc, char const *argv[]) {
     assert(ndeme > 0);
 
     if(verbose > 0){
-        cout << "\nSimulating gland growth with (allele-specific) CNAs, with " <<  ndeme << " glands in total" << endl;
+        cout << "\nSimulating gland growth with total CNAs, with " <<  ndeme << " glands in total" << endl;
     }
 
     set_outdir(outdir, verbose);
@@ -332,6 +343,7 @@ int main(int argc, char const *argv[]) {
           }
           // fcf << "Total number of unique (clonal) mutations in all glands is: " << glands.muts.size() << endl;
           double fission_rate = (double) glands.muts.size() / (glands.clones.size() - 1);
+          // first 2 columns have no meanings
           fcf << "0\t0\t" << glands.muts.size() << "\t" << glands.clones.size() << "\t" << fission_rate << endl;
         }
     }else{
@@ -345,6 +357,7 @@ int main(int argc, char const *argv[]) {
         glands.root = new node(start_cell->cell_ID);
         glands.simulate_gland_as_cell(start_cell, ndeme, start_model, lineages, store_lineage, loc_type, leap_size, verbose);
 
+        // sample from two sides of the lineage tree if the numbers are specified
         if(nglands.size() > 0){
             glands.sample_gland_from_cell(nglands, verbose);
             // assert(glands.sample_IDs.size() == num_sampled_glands);
@@ -357,7 +370,7 @@ int main(int argc, char const *argv[]) {
         }
 
         vector<int> gids;
-        // Get average absolute CNP of all cells
+        // Get average absolute CNP of all glands (cells)
         map<int, double*> avg_loc_changes;
         // assert(glands.clones[0]->curr_cells.size() == ndeme);
         // Initialize avg_loc_changes to be global
@@ -365,12 +378,15 @@ int main(int argc, char const *argv[]) {
         for(auto c : glands.clones[0]->curr_cells){
             // cout << c->cell_ID << endl;
             curr_cIDs.push_back(c->cell_ID);
+            // only store sampled glands if there is sampling
             if(glands.sample_IDs.size() > 0 && find(glands.sample_IDs.begin(), glands.sample_IDs.end(), c->cell_ID) == glands.sample_IDs.end()) continue;
             // cout << " adding into list" << endl;
             gids.push_back(c->cell_ID);
             avg_loc_changes[c->cell_ID] = new double[NUM_LOC];
             for(int i = 0; i < NUM_LOC; i++){
                 avg_loc_changes[c->cell_ID][i] = c->loc_changes[i];
+                // if(c->loc_changes[i] != NORM_PLOIDY)
+                //   cout << i << "\t" << avg_loc_changes[c->cell_ID][i] << endl;
             }
         }
         // cout << curr_cIDs.size() << " cells in the end" << endl;

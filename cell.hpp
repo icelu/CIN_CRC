@@ -269,8 +269,11 @@ public:
             u = runiform(r, 0, 1);
             len = 1;    // add 1 to avoid 0 length
             if(u < 0.5){  // gain
-                // len = ceil(gsl_ran_exponential(r, MEAN_GAIN_SIZE));
-                len = real_gain_sizes[myrng(real_gain_sizes.size())];
+                if(real_gain_sizes.size() > 0){
+                  len = real_gain_sizes[myrng(real_gain_sizes.size())];
+                }else{
+                  len = ceil(gsl_ran_exponential(r, MEAN_GAIN_SIZE));
+                }
                 // cout << "gain size " << len << endl;
                 end = start + len;
                 if(end > NUM_LOC) end = NUM_LOC;
@@ -279,8 +282,11 @@ public:
                 }
 
             }else{
-                // len = ceil(gsl_ran_exponential(r, MEAN_LOSS_SIZE));
-                len = real_loss_sizes[myrng(real_loss_sizes.size())];
+                if(real_loss_sizes.size() > 0){
+                  len = real_loss_sizes[myrng(real_loss_sizes.size())];
+                }else{
+                  len = ceil(gsl_ran_exponential(r, MEAN_LOSS_SIZE));
+                }
                 // cout << "loss size " << len << endl;
                 end = start + len;
                 if(end > NUM_LOC) end = NUM_LOC;
