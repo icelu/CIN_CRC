@@ -14,9 +14,9 @@ There is also a program to simulate copy numbers obtained from multi-region sequ
 * [boost](https://www.boost.org)
 
 ## Compilation
-Download the source code and then run `make` in folder "code" to generate the simulation program 'simgland'.
+Download the source code and then run `make` in folder "src" to generate the simulation program 'simgland'.
 
-Comment out relevant line to generate the simulation program 'simcrc'.
+Comment out relevant line in 'makefile' to generate the simulation program 'simcrc'.
 
 
 # Usage of simgland
@@ -40,7 +40,7 @@ The summary statistics represents
 3) variance of pairwise divergences,
 4) number of unique breakpoints across all sampled glands,
 5) number of unique mutations across all sampled glands, and
-6) average pairwise different number of mutations (mismatch).
+6) average pairwise mismatch (numbers of different mutations).
 
 
 * When verbose > 0, more information will be written to the standard output and there is a file containing the copy numbers for each sampled gland.
@@ -56,6 +56,7 @@ Using '--fdeme FILENAME' will output the lineages of glands.
 
 The example commands show the basic usage of the program.
 They will simulate 1000 glands with CNAs under mutation rate 0.1 and then sample 30 glands from each side of the lineage tree .
+Please go to folder 'bin' before running the commands.
 
 * Assuming neutral evolution:
 ```

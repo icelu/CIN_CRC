@@ -10,13 +10,23 @@ FLAG = -O3
 # -pg
 # FLAG =
 
-# all: simcrc simgland
-all: simgland
+OUT_DIR = ../bin
 
-# sveta: sveta.cpp
-# 	cd gzstream/ && make
-# 	#  Add -lintlc when using intel complier
-# 	$(CCC) $(FLAG) -std=gnu++11 sveta.cpp matexp/matrix_exponential.cpp matexp/r8lib.cpp -o sveta -L$(BOOST)/lib/ -lboost_program_options -lgsl -lgslcblas -L./gzstream -lgzstream -lz -I$(BOOST)/include -I./gzstream
+MKDIR_P = mkdir -p
+
+.PHONY: directories
+
+
+# all: directories simcrc simgland
+all: directories simgland
+
+
+directories: ${OUT_DIR}
+
+
+${OUT_DIR}:
+	${MKDIR_P} ${OUT_DIR}
+
 
 # simcrc:
 # 	$(CCC) $(FLAG) -std=gnu++11 sim_crc.cpp -o ../bin/simcrc -L$(BOOST)/lib/ -lboost_program_options -lboost_system -lboost_filesystem -L$(GSL)/lib/ -lgsl -lgslcblas -lm -lz -I$(BOOST)/include -I$(GSL)/include
