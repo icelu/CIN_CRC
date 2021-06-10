@@ -15,6 +15,7 @@
 #include <set>
 #include <climits>
 #include <cstdlib>
+#include <unordered_set>
 
 #include <unistd.h>
 
@@ -102,12 +103,17 @@ const int MULTI_NCHR = 16;
 
 // used for simulating glands
 const vector<int> CHR_BIN_SIZE{499,487,397,383,362,343,319,293,283,272,271,268,231,215,206,181,163,157,119,127,97,103};
+// accumulative chr size
+const vector<int> CHR_SSIZE{499,986,1383,1766,2128,2471,2790,3083,3366,3638,3909,4177,4408,4623,4829,5010,5173,5330,5449,5576,5673,5776};
 const int NUM_LOC = 5776;
-
-const int MAX_DEME_SIZE = 10000;
 
 vector<double> LOC_PROBS_vec(NUM_LOC, 1.0/NUM_LOC);
 double* LOC_PROBS = &LOC_PROBS_vec[0];
+vector<double> CHR_PROBS_vec(NUM_CHR, 1.0/NUM_CHR);
+double* CHR_PROBS = &CHR_PROBS_vec[0];
+
+
+const int MAX_DEME_SIZE = 10000;
 
 
 enum CNA_type{BIN, ARM, PSEUDO, BPOINT};
@@ -118,6 +124,7 @@ const int DEC_PLACE = 10;
 // Position offset for migration clones
 const double MIGRATE_OFFSET = 100.0;
 
+int TOSAMPLE = 100; // number of random elements to sample from a population
 
 // enum SStat_type{LVAR, ADIFF, AVG, CMPL, DIFF, BP, ALTBIN, ALTBIN_SEP, BP_BIN, ALL};
 enum SStat_type{LVAR, ADIFF, AVG, CMPL, DIFF, BP, ALTBIN, ALTBIN_SEP, BP_BIN, ALL};
@@ -131,7 +138,24 @@ int MEAN_LOSS_SIZE = 37;
 vector<int> real_gain_sizes;
 vector<int> real_loss_sizes;
 
-double START_GENOTYPE[NUM_LOC] = {0};
+// karyotype at bin level
+double START_KARYOTYPE[NUM_LOC] = {2};
+double OPT_KARYOTYPE[NUM_LOC] = {2};
+// karyotype at chromosome level
+double START_KARYOTYPE_CHR[NUM_CHR] = {2};
+double OPT_KARYOTYPE_CHR[NUM_CHR] = {2};
+
+double WEIGHT_OPTIMUM; // control probability of mutation at locations in optimum karyotype
+
+int START_WITH_OPT = 1;
+double OPT_BIRTHRATE = 1;
+double OPT_DEATHRATE = 0;
+int CHR_CNA = 0; // whether or not to simulate chr-level CNA only; 0: no; 1: yes
+
+// print CNAs at specific times
+const vector<int> NTIMES{100, 500, 1000, 5000, 10000, 50000, 100000};
+// const vector<int> NTIMES{200, 500, 1000, 10000, 100000};
+
 
 gsl_rng * r;
 std::mt19937 eng;
@@ -352,6 +376,25 @@ int sample_from_empirical_cdf(const vector<int>& cna_sizes){
     // double u = gsl_rng_uniform (r);
     int u = myrng(cna_sizes.size());
     return cna_sizes[u];
+}
+
+
+// from https://stackoverflow.com/questions/28287138/c-randomly-sample-k-numbers-from-range-0n-1-n-k-without-replacement
+unordered_set<int> BobFloydAlgo(int sampleSize, int rangeUpperBound)
+{
+     unordered_set<int> sample;
+     // default_random_engine generator;
+     // cout << "sample " << sampleSize << " from " << rangeUpperBound << endl;
+     for(int d = rangeUpperBound - sampleSize; d < rangeUpperBound; d++)
+     {
+           // int t = uniform_int_distribution<>(0, d)(generator);
+           int t = gsl_rng_uniform_int(r, d);
+           if (sample.find(t) == sample.end() )
+               sample.insert(t);
+           else
+               sample.insert(d);
+     }
+     return sample;
 }
 
 

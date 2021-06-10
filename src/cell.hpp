@@ -141,7 +141,7 @@ public:
     vector<string> muts;  // IDs of mutations in one cell, used to count #unique mutations in a random population of cells
 
     int loc_changes[NUM_LOC] = {0};
-
+    int chr_changes[NUM_CHR] = {0};
 
     ~Cell() = default;
     Cell(const Cell& other) = default;
@@ -165,7 +165,11 @@ public:
         num_mut = 0;
 
         for(int i = 0; i < NUM_LOC; i++){
-            loc_changes[i] = START_GENOTYPE[i];
+            loc_changes[i] = START_KARYOTYPE[i];
+        }
+
+        for(int i = 0; i < NUM_CHR; i++){
+            chr_changes[i] = START_KARYOTYPE_CHR[i];
         }
     }
 
@@ -184,7 +188,7 @@ public:
         // this->num_mut = 0;
 
         // for(int i = 0; i < NUM_LOC; i++){
-        //     loc_changes[i] = START_GENOTYPE[i];
+        //     loc_changes[i] = START_KARYOTYPE[i];
         // }
     }
 
@@ -204,7 +208,11 @@ public:
         this->num_mut = 0;
 
         for(int i = 0; i < NUM_LOC; i++){
-            loc_changes[i] = START_GENOTYPE[i];
+            loc_changes[i] = START_KARYOTYPE[i];
+        }
+
+        for(int i = 0; i < NUM_CHR; i++){
+            chr_changes[i] = START_KARYOTYPE_CHR[i];
         }
     }
 
@@ -239,6 +247,10 @@ public:
         for(int i = 0; i < NUM_LOC; i++){
             loc_changes[i] = ncell.loc_changes[i];
         }
+
+        for(int i = 0; i < NUM_CHR; i++){
+            chr_changes[i] = ncell.chr_changes[i];
+        }
     }
 
 
@@ -248,9 +260,47 @@ public:
         pos.z += offset_z;
     }
 
+
+    double get_dist_chr_level(){
+      double dist = 0;
+
+      for(int i = 0; i < NUM_CHR; i++){
+        double weight = 1;  // add weight for locations different from optimum karyotype
+        double rcn = abs(this->chr_changes[i] - OPT_KARYOTYPE_CHR[i]);
+        if((this->chr_changes[i] != NORM_PLOIDY && START_KARYOTYPE_CHR[i] == OPT_KARYOTYPE_CHR[i]) ||
+            (this->chr_changes[i] != OPT_KARYOTYPE_CHR[i] && START_KARYOTYPE_CHR[i] != OPT_KARYOTYPE_CHR[i])){
+          weight = WEIGHT_OPTIMUM;
+        }
+        dist += weight * rcn;
+     }
+
+      return dist;
+    }
+
+
+    double get_dist_bin_level(){
+      double dist = 0;
+
+      for(int i = 0; i < NUM_LOC; i++){
+        double weight = 1;  // add weight for locations different from optimum karyotype
+        double rcn = abs(this->loc_changes[i] - OPT_KARYOTYPE[i]);
+        if((this->loc_changes[i] != NORM_PLOIDY && START_KARYOTYPE[i] == OPT_KARYOTYPE[i]) ||
+            (this->loc_changes[i] != OPT_KARYOTYPE[i] && START_KARYOTYPE[i] != OPT_KARYOTYPE[i])){
+          weight = WEIGHT_OPTIMUM;
+        }
+        dist += weight * rcn;
+      }
+
+      return dist;
+    }
+
+
     /*********************** functions related to mutation generations **************************/
     /*
     generate CNAs in a pseudo (abstract) way to save time
+    1. choose locations of mutations
+    2. randomly select gain or loss
+    not follow infinite site assumption
     */
     int generate_CNV_pseudo(int& mut_ID, double time_occur, int verbose = 0){
         int nu = gsl_ran_poisson(r, mutation_rate);
@@ -259,13 +309,24 @@ public:
 
         if(verbose > 1 && nu > 0) cout << "Generating " << nu << " CNAs under mutation rate " << mutation_rate << " in cell " << cell_ID << endl;
 
-        gsl_ran_discrete_t* dis_loc = gsl_ran_discrete_preproc(NUM_LOC, LOC_PROBS);
+        gsl_ran_discrete_t* dis_loc;
         double u = 0;
-        int start = gsl_ran_discrete(r, dis_loc);
+        int start = 0;
         int len = 0;
         int end = 0;
+        int chr = 0;
 
-        for (int j=0; j < nu; j++) {
+        // this chunk was outside loop previously, should have litte effect at bin level as the mutation rate is very low (0, 0.5)
+        // most division will only introduce at most 1 mutation due to low rate
+        // multiple mutations may overlap at some bins
+        // save computation time when simulating a larger population
+        // dis_loc = gsl_ran_discrete_preproc(NUM_LOC, LOC_PROBS);
+        // start = gsl_ran_discrete(r, dis_loc);
+
+        for (int j = 0; j < nu; j++) {
+            dis_loc = gsl_ran_discrete_preproc(NUM_LOC, LOC_PROBS);
+            start = gsl_ran_discrete(r, dis_loc);
+
             u = runiform(r, 0, 1);
             len = 1;    // add 1 to avoid 0 length
             if(u < 0.5){  // gain
@@ -276,11 +337,13 @@ public:
                 }
                 // cout << "gain size " << len << endl;
                 end = start + len;
+
                 if(end > NUM_LOC) end = NUM_LOC;
+
+                // update loc_changes even when only chr-level CNAs are simulated to reuse some postprocessing functions
                 for(int i = start; i < end; i++){
                     loc_changes[i]++;
                 }
-
             }else{
                 if(real_loss_sizes.size() > 0){
                   len = real_loss_sizes[myrng(real_loss_sizes.size())];
@@ -289,7 +352,9 @@ public:
                 }
                 // cout << "loss size " << len << endl;
                 end = start + len;
+
                 if(end > NUM_LOC) end = NUM_LOC;
+
                 for(int i = start; i < end; i++){
                     if(loc_changes[i] == 0){
                         // cout << "No more copies to lost!" << endl;
@@ -305,6 +370,68 @@ public:
 
         return nu;
     }
+
+
+    /*
+    generate CNAs in a pseudo (abstract) way to save time
+    1. choose locations of mutations
+    2. randomly select gain or loss
+    not follow infinite site assumption
+    */
+    int generate_CNV_chr_level(int& mut_ID, double time_occur, int verbose = 0){
+        int nu = gsl_ran_poisson(r, mutation_rate);
+
+        if(nu <= 0) return nu;
+
+        if(verbose > 1 && nu > 0) cout << "Generating " << nu << " chr-level CNAs under mutation rate " << mutation_rate << " in cell " << cell_ID << endl;
+
+        gsl_ran_discrete_t* dis_loc;
+        double u = 0;
+        int start = 0;
+        int end = 0;
+        int chr = 0;
+
+        for (int j = 0; j < nu; j++) {
+            // only mutations at different chromosomes in a single division for large jumps
+            // randomly select a chromosome
+            dis_loc = gsl_ran_discrete_preproc(NUM_CHR, CHR_PROBS);
+            chr = gsl_ran_discrete(r, dis_loc);
+            // compute the start and end position (always change loc_changes for consistent with other computations)
+            if(chr == 0){
+              start = 0;
+            }else{
+              start = CHR_SSIZE[chr - 1];
+            }
+            end = CHR_SSIZE[chr];
+            if(verbose > 1 && nu > 0) cout << " CNAs on chr " << chr << " start " << start << " end " << end << endl;
+
+            u = runiform(r, 0, 1);
+            if(u < 0.5){  // gain
+              chr_changes[chr]++;
+              if(end > NUM_LOC) end = NUM_LOC;
+              // update loc_changes even when only chr-level CNAs are simulated to reuse some postprocessing functions
+              for(int i = start; i < end; i++){
+                  loc_changes[i]++;
+              }
+            }else{  // loss
+              if(chr_changes[chr] > 0)  chr_changes[chr]--;
+              if(end > NUM_LOC) end = NUM_LOC;
+              for(int i = start; i < end; i++){
+                  if(loc_changes[i] == 0){
+                      // cout << "No more copies to lost!" << endl;
+                      continue;
+                  }
+                  loc_changes[i]--;
+              }
+            }
+            mut_ID = mut_ID + 1;
+            this->muts.push_back(to_string(this->clone_ID) + "_" + to_string(mut_ID));
+            this->num_mut++;
+        }
+
+        return nu;
+    }
+
 
     /*********************************************************************************/
 

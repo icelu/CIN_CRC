@@ -13,6 +13,11 @@ using namespace std;
 
 const int MIN_NCELL_MET = 10;
 
+// This program mainly simulates multiple-region (temporal) bulk samples taken from a patient.
+// It starts from a single cell and at some point one cell can migragate and initiate a new clone.
+// Each clone stops growing when reaching N cells.
+
+
 // TODO: pass parameters
 int main(int argc, char const *argv[]) {
     int mode;

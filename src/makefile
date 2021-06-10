@@ -32,7 +32,7 @@ ${OUT_DIR}:
 # 	$(CCC) $(FLAG) -std=gnu++11 sim_crc.cpp -o ../bin/simcrc -L$(BOOST)/lib/ -lboost_program_options -lboost_system -lboost_filesystem -L$(GSL)/lib/ -lgsl -lgslcblas -lm -lz -I$(BOOST)/include -I$(GSL)/include
 
 simgland:
-	$(CCC) $(FLAG) -std=gnu++11 sim_gland.cpp -o ../bin/simgland -L$(BOOST)/lib/ -lboost_program_options -lboost_system -lboost_filesystem -L$(GSL)/lib/ -lgsl -lgslcblas -lm -lz -I$(BOOST)/include -I$(GSL)/include
+	$(CCC) $(FLAG) -std=gnu++11 sim_gland.cpp -o ${OUT_DIR}/simgland -L$(BOOST)/lib/ -lboost_program_options -lboost_system -lboost_filesystem -L$(GSL)/lib/ -lgsl -lgslcblas -lm -lz -I$(BOOST)/include -I$(GSL)/include
 
 clean:
 	# rm ../bin/simcrc

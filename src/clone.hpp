@@ -334,13 +334,21 @@ A Clone represents a population of cells
 class Clone
 {
 public:
-    int clone_ID;
+    int clone_ID;   // the default initial clone has ID 0
     string name;
 
     // Used for tracking clone/deme expansion
     int parent_ID;
 
     vector<Cell_ptr> curr_cells;   // only available cells at present
+    map<int, vector<map<int, pcn>>> cnp_by_time;   // CNPs at different population sizes
+    map<int, map<int, double*>> lchange_by_time;   // CNAs at different population sizes (format used for computing summary statistics)
+    map<int, double> meanfit_by_time ;
+    map<int, double> maxfit_by_time;
+    map<int, double> minfit_by_time;
+    // map<int, vector<double>> fits_by_time;
+    map<int, double> dist_by_time;
+    // map<int, double> dm_by_time;
 
     // added for simulating glands
     vector<Cell_ptr> cells;   // all cells at present
@@ -409,9 +417,17 @@ public:
 
     ~Clone(){
         // cout << "Only delete available cells " << curr_cells.size() << endl;
-        for(auto p : curr_cells){
-            // cout << p->cell_ID << "\t" << p->clone_ID << endl;
-            delete p;
+        if(cells.size() > 0){
+          // when all cells are recorded
+          for(auto p : cells){
+              // cout << p->cell_ID << "\t" << p->clone_ID << endl;
+              delete p;
+          }
+        }else{
+          for(auto p : curr_cells){
+              // cout << p->cell_ID << "\t" << p->clone_ID << endl;
+              delete p;
+          }
         }
 
         for(auto s : samples){
@@ -515,6 +531,98 @@ public:
         return bmax + dmax;
     }
 
+    // Find mean copy number for each chromosome
+    void get_mean_karyotype(const vector<Cell_ptr> cells, vector<double>& mean_karyotype, int verbose = 0){
+      int nloc = NUM_LOC;
+      if(CHR_CNA == 1){
+        nloc = NUM_CHR;
+        for(int i = 0; i < NUM_CHR; i++){
+          double mean_cn = 0;
+          for(auto c : cells){
+            mean_cn += c->chr_changes[i];
+          }
+          mean_cn = mean_cn / cells.size();
+          mean_karyotype.push_back(mean_cn);
+        }
+      }else{
+        for(int i = 0; i < NUM_LOC; i++){
+          double mean_cn = 0;
+          for(auto c : cells){
+            mean_cn += c->loc_changes[i];
+          }
+          mean_cn = mean_cn / cells.size();
+          mean_karyotype.push_back(mean_cn);
+        }
+      }
+
+      if(verbose > 1){
+        cout << "Mean karyotype:";
+        for(int i = 0; i < nloc; i++){
+          cout << "\t" << mean_karyotype[i];
+        }
+        cout << endl;
+      }
+    }
+
+
+    // get fitness statistics of a clone
+    // here fitness is actually growth rate, computed over all available cells in the clone
+    void get_fitness_stats() {
+      double avg_fitness = 0.0;
+      double max_fitness = 0.0;
+      double min_fitness = 1000000.0;
+      double avg_dist = 0.0;
+      // double dm = 0.0;
+      // vector<double> fits;
+      for(auto c : this->curr_cells){
+        double s = c->birth_rate - c->death_rate;
+        // fits.push_back(s);
+        avg_fitness += s;
+        if(s < min_fitness){
+          min_fitness = s;
+        }
+        if(s > max_fitness){
+          max_fitness = s;
+        }
+        if(CHR_CNA == 1){
+          avg_dist += c->get_dist_chr_level();
+        }else{
+          avg_dist += c->get_dist_bin_level();
+        }
+        // fitnesses.push_back(s);
+      }
+
+
+      double currsize = this->curr_cells.size();
+      // this->fits_by_time[currsize] = fits;
+      avg_fitness = avg_fitness / currsize;
+      avg_dist = avg_dist / currsize;
+      // // if(verbose > 0){
+
+      //   vector<double> mean_karyotype;
+      //   get_mean_karyotype(this->curr_cells, mean_karyotype, verbose);
+      //   if(CHR_CNA == 1){
+      //     for(int i = 0; i < NUM_CHR; i++){
+      //       dm += abs(mean_karyotype[i] - OPT_KARYOTYPE_CHR[i]);
+      //     }
+      //   }else{
+      //     for(int i = 0; i < NUM_LOC; i++){
+      //       dm += abs(mean_karyotype[i] - OPT_KARYOTYPE[i]);
+      //     }
+      //   // }
+
+      // cout << "Record CNPs at size " << currsize << " with " << samples.size() << " cells, average fitness " << avg_fitness << ", average distance (bin level) to optimum " << avg_dist << endl;
+      // << ", distance (chr level) of mean karyotype to optimum " << dm << endl;;
+
+      this->meanfit_by_time[currsize] = avg_fitness;
+      // double max_fitness = *max_element(fits.begin(), fits.end());
+      this->maxfit_by_time[currsize] = max_fitness;
+      // double min_fitness = *min_element(fits.begin(), fits.end());
+      this->minfit_by_time[currsize] = min_fitness;
+      this->dist_by_time[currsize] = avg_dist;
+      // this->dm_by_time[currsize] = dm;
+    }
+
 
     // Update the location of new-born daughter cells
     Coord get_neighbor_position(Coord p_pos, double sd){
@@ -552,6 +660,7 @@ public:
     * Key function when introducing selection into the stochastic branching process
     * Update the birth/death rate of a cell (only occur when there are new mutations in daughter cells) according to that of a reference cell
     * TODO: Different fitness values may apply at different locations of the genome
+    * start_cell: the baseline for fitness changes (should be the cell with optimum karyotype)
     * Two models considered here:
     * When genotype_diff > 0, selection model is based on alpha (negative selection -- positive alpha)
     * Otherwise, selection model is based on classic selection coefficient (negative selection -- negative s)
@@ -560,6 +669,14 @@ public:
     void update_cell_growth(Cell_ptr dcell, const Cell_ptr start_cell, const Model& model, int loc_type, int verbose = 0) {
         // Introduce selection to cells with CNAs using specified fitness
         double gdiff = 0;
+        // assume start cell has optimum karyotype by default
+        double b0 = start_cell->birth_rate;
+        double d0 = start_cell->death_rate;
+        if(START_WITH_OPT == 0){   // when starting from diploid, rate changes relative to optimum
+          b0 = OPT_BIRTHRATE;
+          d0 = OPT_DEATHRATE;
+        }
+        // cout << "optimum birth rate " << b0 << ", optimum death rate " << d0 << endl;
 
         if(model.use_alpha > 0 || model.genotype_diff > 0){
           if(model.genotype_diff == 3){
@@ -568,14 +685,32 @@ public:
           }else if(model.genotype_diff == 2){
             if(verbose > 1) cout << "Using relative CN to measure genotype difference" << endl;
             for(int i = 0; i < NUM_LOC; i++){
-              double rcn = abs(dcell->loc_changes[i] - START_GENOTYPE[i]);
+              double rcn = abs(dcell->loc_changes[i] - OPT_KARYOTYPE[i]);
               gdiff += rcn;
             }
-          }else{  // use PGA to measure genotype difference
+          }else if(model.genotype_diff == 1){  // use PGA to measure genotype difference
             if(verbose > 1) cout << "Using percentage of genome altered to measure genotype difference" << endl;
             for(int i = 0; i < NUM_LOC; i++){
-              double rcn = abs(dcell->loc_changes[i] - START_GENOTYPE[i]);
-              if(rcn > 0) gdiff += 1;   // just count #bins to have a fixed rang
+              double rcn = abs(dcell->loc_changes[i] - OPT_KARYOTYPE[i]);
+              if(rcn > 0) gdiff += 1;   // just count #bins to have a fixed range
+            }
+          }else{  // used for initialization from diploid, chr-level changes allowable
+            assert(model.genotype_diff == 4);
+            if(CHR_CNA == 1){
+              gdiff += dcell->get_dist_chr_level();
+
+              if(verbose > 1){
+                // output cell karyotype
+                cout << "current cell karyotype: ";
+                for(int i = 0; i < NUM_CHR; i++){
+                  cout << dcell->chr_changes[i] << ", ";
+                }
+                cout << endl;
+
+                cout << "distance between them: " << gdiff << endl;
+              }
+            }else{
+              gdiff += dcell->get_dist_bin_level();
             }
           }
           // normalized by number of bins to avoid sharp change of net growth rate, will be in (0,1) when PGA is used to compute genotype difference
@@ -588,16 +723,17 @@ public:
           assert(1 + model.fitness > 0);
         }
 
+
         switch (model.growth_type) {
             case ONLY_BIRTH: {
                 if(model.use_alpha > 0){
-                    dcell->birth_rate = start_cell->birth_rate / (1 + gdiff * model.fitness);
+                    dcell->birth_rate = b0 / (1 + gdiff * model.fitness);
                 }else{
                     // To ignore the effect of genotype difference, set gdiff = 1
                     if(model.genotype_diff > 0 && gdiff >= model.min_diff){
-                       dcell->birth_rate = start_cell->birth_rate * (1 + gdiff * model.fitness);
+                       dcell->birth_rate = b0 * (1 + gdiff * model.fitness);
                     }else{
-                       dcell->birth_rate = start_cell->birth_rate * (1 + model.fitness);
+                       dcell->birth_rate = b0 * (1 + model.fitness);
                     }
                 }
                 break;
@@ -605,16 +741,16 @@ public:
             case CHANGE_BIRTH: {   // decrease birth rate only
                 double new_grate = 0;
                 if(model.use_alpha > 0){
-                    new_grate = (start_cell->birth_rate - start_cell->death_rate) / (1 + gdiff * model.fitness);
-                    dcell->birth_rate = start_cell->death_rate + new_grate;
+                    new_grate = (b0 - d0) / (1 + gdiff * model.fitness);
+                    dcell->birth_rate = d0 + new_grate;
                     dcell->death_rate = dcell->birth_rate - new_grate;
                 }else{
                     if(model.genotype_diff > 0 && gdiff >= model.min_diff){
-                        new_grate = (start_cell->birth_rate - start_cell->death_rate) * (1 + gdiff * model.fitness);
+                        new_grate = (b0 - d0) * (1 + gdiff * model.fitness);
                     }else{
-                        new_grate = (start_cell->birth_rate - start_cell->death_rate) * (1 + model.fitness);
+                        new_grate = (b0 - d0) * (1 + model.fitness);
                     }
-                    dcell->birth_rate = start_cell->death_rate + new_grate;
+                    dcell->birth_rate = d0 + new_grate;
                     dcell->death_rate = dcell->birth_rate - new_grate;
                 }
                 break;
@@ -622,15 +758,16 @@ public:
             case CHANGE_DEATH:{    // increase death rate only
                 double new_grate = 0;
                 if(model.use_alpha > 0){
-                    new_grate = (start_cell->birth_rate - start_cell->death_rate) / (1 + gdiff * model.fitness);
+                    new_grate = (b0 - d0) / (1 + gdiff * model.fitness);
                 }else{
                     if(model.genotype_diff > 0 && gdiff >= model.min_diff){
-                        new_grate = (start_cell->birth_rate - start_cell->death_rate) * (1 + gdiff * model.fitness);
+                        new_grate = (b0 - d0) * (1 + gdiff * model.fitness);
                     }else{
-                        new_grate = (start_cell->birth_rate - start_cell->death_rate) * (1 + model.fitness);
+                        new_grate = (b0 - d0) * (1 + model.fitness);
                     }
                 }
-                double new_drate = (start_cell->birth_rate - new_grate);
+                // cout << "new growth rate " << new_grate << endl;
+                double new_drate = (b0 - new_grate);
                 dcell->death_rate = new_drate > dcell->death_rate ? new_drate : dcell->death_rate;
                 dcell->birth_rate = dcell->death_rate + new_grate;
                 break;
@@ -638,20 +775,20 @@ public:
             case CHANGE_BOTH:{
                 double new_grate = 0;
                 if(model.use_alpha > 0){
-                    new_grate = (start_cell->birth_rate - start_cell->death_rate) / (1 + gdiff * model.fitness);
+                    new_grate = (b0 - d0) / (1 + gdiff * model.fitness);
                 }else{
                     if(model.genotype_diff > 0 && gdiff >= model.min_diff){
-                        new_grate = (start_cell->birth_rate - start_cell->death_rate) * (1 + gdiff * model.fitness);
+                        new_grate = (b0 - d0) * (1 + gdiff * model.fitness);
                     }else{
-                        new_grate = (start_cell->birth_rate - start_cell->death_rate) * (1 + model.fitness);
+                        new_grate = (b0 - d0) * (1 + model.fitness);
                     }
                 }
                 double rn = runiform(r, 0, 1);
                 if(rn < 0.5){
-                    dcell->birth_rate = start_cell->death_rate + new_grate;
+                    dcell->birth_rate = d0 + new_grate;
                     dcell->death_rate = dcell->birth_rate - new_grate;
                 }else{
-                    double new_drate = (start_cell->birth_rate - new_grate);
+                    double new_drate = (b0 - new_grate);
                     dcell->death_rate = new_drate > dcell->death_rate ? new_drate : dcell->death_rate;
                     dcell->birth_rate = dcell->death_rate + new_grate;
                 }
@@ -784,9 +921,18 @@ public:
 
                  // daughter cells aquire nu new mutations, where nu ~ Poisson(mutation_rate)
                  if (ncell->mutation_rate > 0) {
-                     int nu1 = dcell1->generate_CNV_pseudo(mut_ID, t, verbose);
+                     int nu1 = 0;
+                     int nu2 = 0;
+
+                     if(CHR_CNA == 1){
+                       nu1 = dcell1->generate_CNV_chr_level(mut_ID, t, verbose);
+                       nu2 = dcell2->generate_CNV_chr_level(mut_ID, t, verbose);
+                     }else{
+                       nu1 = dcell1->generate_CNV_pseudo(mut_ID, t, verbose);
+                       nu2 = dcell2->generate_CNV_pseudo(mut_ID, t, verbose);
+                     }
+
                      nu += nu1;
-                     int nu2 = dcell2->generate_CNV_pseudo(mut_ID, t, verbose);
                      nu += nu2;
 
                      if(verbose > 1){
@@ -843,15 +989,16 @@ public:
      /*
         This method simulates tumour growth with a rejection-kinetic Monte Carlo algorithm.
         Record all cells in the lineages, only suitable for a small number of cells (e.g. simulating gland as cell)
+        Allow deleting cells in case a larger population is simulated
         intput:
          Nend -- the cell population size at the end
-         start_cell -- the starting cell-> Given a cell in another clone, it can mimick migragation
+         start_cell -- the starting cell. Given a cell in another clone, it can mimick migragation
          model -- 0: neutral, 1: gradual, 2: punctuated
          restart -- 1: start with a new cell; 0: continue with current state
         output:
          a tree-like structure. For each Cell, its children, occurence time, birth rate, death rate
       */
-      void grow_with_cnv_cmpl(const Cell_ptr start_cell, const Model& model, int Nend, node* root, int loc_type, double leap_size=0, int verbose = 0, int restart = 1, double tend = DBL_MAX){
+      void grow_with_cnv_cmpl(const Cell_ptr start_cell, const Model& model, int Nend, node* root, int loc_type, double leap_size=0, int track_lineage = 0, int multiple_output = 0, int verbose = 0, int restart = 1, double tend = DBL_MAX){
           // Initialize the simulation with one cell
           if(restart == 1){
               initialize_with_cnv_cmpl(start_cell, model, verbose);
@@ -867,13 +1014,64 @@ public:
           // && start_cell->time_occur + t <= tend
           while(this->curr_cells.size() < Nend) {
               if (this->curr_cells.size() == 0) {
+                  cout << "restart from first cell" << endl;
                   t = 0;
                   mut_ID = start_cell->num_mut;
                   nu = 0;
                   initialize_with_cnv_cmpl(start_cell, model, verbose);
+                  restart = 1;
                   continue;
               }
               // print_all_cells(this->curr_cells, verbose);
+
+              // The population may be shrinked at some time, only sample at the first apperance
+              if(multiple_output == 1){
+                int currsize = this->curr_cells.size();
+                if (find(NTIMES.begin(), NTIMES.end(), currsize) != NTIMES.end() &&    // current population size is to be sampled
+                    meanfit_by_time .find(currsize) == meanfit_by_time .end())    // not sampled yet
+                {
+                  vector<map<int, pcn>> pcn1;
+                  map<int, double*> avg_loc_changes;  // used for summary statistics by bin
+                  // map<int, double*> avg_chr_changes;  // used for summary statistics by chr
+                  unordered_set<int> samples;
+                  if(TOSAMPLE < currsize){
+                    samples = BobFloydAlgo(TOSAMPLE, currsize);
+                  }
+
+                  if(verbose > 0){
+                    cout << "sampled cell IDs at " << currsize << ":";
+                    for(auto cid : samples){
+                      cout << " " << cid;
+                    }
+                    cout << endl;
+                  }
+                  // randomly sample 100 cells and store their CNPs
+                  int scount = 0;
+                  for(auto s : this->curr_cells){
+                    if(samples.find(scount) != samples.end() || TOSAMPLE == currsize){
+                      // string sname = "G" + to_string(s->cell_ID);
+                        map<int, pcn> cell_pcn;
+                        pcn cnp;
+                        loc2pcn(s->loc_changes, cnp, verbose);
+                        cell_pcn[s->cell_ID] = cnp;
+                        pcn1.push_back(cell_pcn);
+
+                        avg_loc_changes[s->cell_ID] = new double[NUM_LOC];
+                        for(int i = 0; i < NUM_LOC; i++){
+                            avg_loc_changes[s->cell_ID][i] = s->loc_changes[i];
+                        }
+                    }
+                    scount++;
+                  }
+
+                  cnp_by_time[currsize] = pcn1;
+                  lchange_by_time[currsize] = avg_loc_changes;
+
+                  // compute average fitness of the current population
+                  // vector<double> fitnesses;
+                  this->get_fitness_stats();
+                }
+              }
 
               // Choose a random cell from the current population
               int rindex = myrng(this->curr_cells.size());
@@ -883,10 +1081,14 @@ public:
               int rID = rcell->cell_ID;
 
               // cout << "root has data " << root->data << endl;
-              node* parent = search_node(rID, root);
-              // cout << "finish seraching" << endl;
-              // cout << parent->data << endl;
-              assert(parent->data == rID);
+              node* parent = NULL;
+              // only record tree structure when starting from a single cell
+              if(restart == 1){
+                parent = search_node(rID, root);
+                // cout << "finish seraching" << endl;
+                // cout << parent->data << endl;
+                assert(parent->data == rID);
+              }
 
               double rmax = get_rmax();
               // increase time
@@ -899,7 +1101,7 @@ public:
               // cout << "random number " << rb << endl;
               if(rb < rbrate){
                   if(verbose > 1){
-                    cout << "Select cell " << rID << " with " << rcell->num_mut << " mutations and birth rate " << rcell->birth_rate << ", death rate " << rcell->death_rate << " to divide" << endl;
+                    cout << "Select cell " << rID << " at index " << rindex << " with " << rcell->num_mut << " mutations and birth rate " << rcell->birth_rate << ", death rate " << rcell->death_rate << " to divide" << endl;
                     // output the number of mutations and birth rates for all the current cells
                     cout << "#mutations for all the current cells:";
                     vector<int> nmuts;
@@ -918,24 +1120,32 @@ public:
                   int cID1 = this->ntot + 1;
                   Cell_ptr dcell1 = new Cell(cID1, rID, start_cell->time_occur + t);
                   dcell1->copy_parent((*rcell));
-                  node* node1 = new node(dcell1->cell_ID);
-                  parent->left = node1;
 
                   int cID2 = this->ntot + 2;
                   Cell_ptr dcell2 = new Cell(cID2, rID, start_cell->time_occur + t);
                   dcell2->copy_parent((*rcell));
-                  dcell2->pos = get_neighbor_position(rcell->pos, POS_SIGMA);
-                  node* node2 = new node(dcell2->cell_ID);
-                  parent->right = node2;
+                  // dcell2->pos = get_neighbor_position(rcell->pos, POS_SIGMA);
+
+                  if(restart == 1){
+                    node* node1 = new node(dcell1->cell_ID);
+                    parent->left = node1;
+                    node* node2 = new node(dcell2->cell_ID);
+                    parent->right = node2;
+                  }
 
                   this->ntot = this->ntot + 2;
 
                   // daughter cells aquire nu new mutations, where nu ~ Poisson(mutation_rate)
                   if (start_cell->mutation_rate > 0) {
-                      int nu1 = dcell1->generate_CNV_pseudo(mut_ID, t, verbose);
-                      nu += nu1;
-                      int nu2 = dcell2->generate_CNV_pseudo(mut_ID, t, verbose);
-                      nu += nu2;
+                      int nu1 = 0;
+                      int nu2 = 0;
+                      if(CHR_CNA == 1){
+                        nu1 = dcell1->generate_CNV_chr_level(mut_ID, t, verbose);
+                        nu2 = dcell2->generate_CNV_chr_level(mut_ID, t, verbose);
+                      }else{
+                        nu1 = dcell1->generate_CNV_pseudo(mut_ID, t, verbose);
+                        nu2 = dcell2->generate_CNV_pseudo(mut_ID, t, verbose);
+                      }
 
                       if(verbose > 1){
                           cout << "Number of mutations in cell " << dcell1->cell_ID << ": " << "\t" << nu1 << endl;
@@ -945,28 +1155,48 @@ public:
                       if(model.fitness != 0)
                       {
                           if(verbose > 1){
-                              cout << "Update the grow parameters of daughter cells " << endl;
+                              cout << "Update the growth parameters of daughter cells " << endl;
                           }
                           if(nu1 > 0) update_cell_growth(dcell1, start_cell, model, loc_type, verbose);
                           if(nu2 > 0) update_cell_growth(dcell2, start_cell, model, loc_type, verbose);
                       }
                   }
-                  // Remove the parent cell from the list of current cells
-                  if(verbose > 1) cout << "remove parent cell " << rID << endl;
-                  parent->flag = -1;
+
+                  if(track_lineage == 1 && restart == 1){ // all created cells are stored in "cells"
+                    if(verbose > 1) cout << "pseudo-remove parent cell " << rID << " at index " << rindex << endl;
+                    parent->flag = -1;
+                    this->cells.push_back(dcell1);
+                    this->cells.push_back(dcell2);
+                  }else{
+                    if(rID != 1){  // avoid destoying start cell for restarting
+                        if(verbose > 1) cout << "delete parent cell " << rID << " at index " << rindex << endl;
+                        delete (this->curr_cells[rindex]);
+                        this->curr_cells[rindex] = NULL;
+                    }
+                  }
+
+                  // Remove the parent cell from the list of current cells, not really delete it when tracing lineage
                   this->curr_cells.erase(this->curr_cells.begin() + rindex);
+
                   this->curr_cells.push_back(dcell1);
                   this->curr_cells.push_back(dcell2);
-
-                  this->cells.push_back(dcell1);
-                  this->cells.push_back(dcell2);
               }
               // death event if b<r<b+d
               else if(rb >= rbrate && rb < rbrate + rdrate) {
                   if(verbose > 1){
-                    cout << "Select cell " << rID << " with " << rcell->num_mut << " mutations and birth rate " << rcell->birth_rate << ", death rate " << rcell->death_rate << " to disappear" << endl;
+                    cout << "Select cell " << rID << " at index " << rindex << " with " << rcell->num_mut << " mutations and birth rate " << rcell->birth_rate << ", death rate " << rcell->death_rate << " to disappear" << endl;
                   }
-                  parent->flag = -1;
+                  if(track_lineage == 1 && restart == 1){
+                    if(verbose > 1) cout << "pseudo-remove parent cell " << rID << " at index " << rindex << endl;
+                    parent->flag = -1;
+                  }else{
+                    if(rID != 1){
+                      if(verbose > 1) cout << "delete parent cell " << rID << " at index " << rindex << endl;
+                        delete (this->curr_cells[rindex]);
+                        this->curr_cells[rindex] = NULL;
+                    }
+                  }
+                  // Remove the parent cell from the list of current cells, not really delete it for tracing lineage
                   this->curr_cells.erase(this->curr_cells.begin() + rindex);
               }else{
 
@@ -978,7 +1208,7 @@ public:
 
           if(verbose > 0){
               cout << "Generated " << nu << " mutations during time " << t << endl;
-              if(verbose > 1) print_all_cells(this->cells, verbose);
+              if(verbose > 1 && track_lineage == 1) print_all_cells(this->cells, verbose);
           }
       }
 

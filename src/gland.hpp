@@ -163,16 +163,26 @@ void print_gland_lineage(string fdeme, string header, const vector<string>& line
 // Simulate CNP for each gland (cell).
 // nglands: number of glands for each sides
 // ndeme: total number of glands
-void simulate_gland_as_cell(const Cell_ptr start_cell, int ndeme, const Model& start_model, vector<string>& lineages, int store_lineage = 0, int loc_type=BIN, double leap_size=0, int verbose = 0){
-    int num_clone = 1;
-    Clone* s = new Clone(num_clone, 0);
-    // s->grow(start_cell, max_deme_size, verbose, 1);
+void simulate_gland_as_cell(const Cell_ptr start_cell, int ndeme, const Model& start_model, vector<string>& lineages, int store_lineage = 0, int loc_type=BIN, double leap_size = 0, int track_lineage = 0, int multiple_output = 0, int verbose = 0, int restart = 1){
+    if(this->clones.size() == 0){
+      int num_clone = 1;
+      Clone* s = new Clone(num_clone, 0);
+      // if not starting from optimum, compute birth and death rate of starting cell based on optimum karyotype (specified by fgenotype)
+      if(START_WITH_OPT == 0){
+        if((CHR_CNA == 0 && !(std::equal(std::begin(OPT_KARYOTYPE), std::end(OPT_KARYOTYPE), std::begin(START_KARYOTYPE)))) ||
+          (CHR_CNA == 1 && !(std::equal(std::begin(OPT_KARYOTYPE_CHR), std::end(OPT_KARYOTYPE_CHR), std::begin(START_KARYOTYPE_CHR))))){
+          assert(start_model.genotype_diff != 3); // infeasible to know the number of mutation in start cell in this case
+          s->update_cell_growth(start_cell, start_cell, start_model, loc_type, verbose);
+        }
+      }
+      this->clones.push_back(s);
+    }
+    cout << "Start cell birth rate " << start_cell->birth_rate << ", death rate " << start_cell->death_rate << endl;
     assert(root != NULL);
-    s->grow_with_cnv_cmpl(start_cell, start_model, ndeme, root, loc_type, leap_size, verbose);
-    this->clones.push_back(s);
+    this->clones[0]->grow_with_cnv_cmpl(start_cell, start_model, ndeme, root, loc_type, leap_size, track_lineage, multiple_output, verbose, restart);
 
     if(store_lineage != 0){
-        for(auto d : s->cells){
+        for(auto d : this->clones[0]->cells){
             string lstr = to_string(d->parent_ID) +  "\t" + to_string(d->cell_ID) + "\t" + to_string(d->time_occur) + "\t" + to_string(d->num_mut);
             if(d->parent_ID != 0) lineages.push_back(lstr);
         }
@@ -272,7 +282,7 @@ void sample_gland_from_cell(const vector<int>& nglands, int verbose = 0){
 }
 
 
-void  print_sstat(const vector<int>& ids, map<int, double*>& avg_loc_changes, int stat_type, int loc_type, double min_freq=0, double max_freq=0.25, double delta = 0.001, int use_std = 0, int verbose = 0) {
+void  print_sstat(const vector<int>& ids, map<int, double*>& avg_loc_changes, vector<double>& alters, int stat_type, int loc_type, double min_freq=0, double max_freq=0.25, double delta = 0.001, int use_std = 0, int verbose = 0) {
     if(verbose > 0){
         cout << "Printing summary statistics" << endl;
     }
@@ -286,19 +296,19 @@ void  print_sstat(const vector<int>& ids, map<int, double*>& avg_loc_changes, in
         case 1: { // 1
             // cout << "Using pairwise difference across locations" << endl;
             print_bin_subclonal_stat_by_type(avg_loc_changes, 1, verbose);
-            print_pairwise_divergence(ids, avg_loc_changes, 1, verbose);
+            print_pairwise_divergence(ids, avg_loc_changes, alters, 1, 1, verbose);
             break;
         }
         case 2: { // 2
             // cout << "Using pairwise difference across locations" << endl;
             print_bin_subclonal_stat_by_type(avg_loc_changes, 0, verbose);
-            print_pairwise_divergence(ids, avg_loc_changes, 1,  verbose);
+            print_pairwise_divergence(ids, avg_loc_changes, alters, 1, 1, verbose);
             break;
         }
         case 4: {  // 4
             // cout << "Using pairwise difference" << endl;
             print_bin_subclonal_stat_by_type(avg_loc_changes, 0, verbose);
-            print_pairwise_divergence(ids, avg_loc_changes, 0, verbose);
+            print_pairwise_divergence(ids, avg_loc_changes, alters, 0, 1, verbose);
             collect_private_subclonal_bps(avg_loc_changes, verbose);
             print_num_uniq_mut(verbose);
             print_pairwise_mismatch(verbose);
@@ -328,7 +338,7 @@ void  print_sstat(const vector<int>& ids, map<int, double*>& avg_loc_changes, in
             // collect_private_subclonal_bps(avg_loc_changes, verbose);
             print_bin_subclonal_stat_by_type(avg_loc_changes, 1, verbose);
             print_variance(avg_loc_changes, loc_type, 0);
-            print_pairwise_divergence(ids, avg_loc_changes, verbose);
+            print_pairwise_divergence(ids, avg_loc_changes, alters, 1, verbose);
             break;
         }
         default: cout << "" << endl;
@@ -434,7 +444,7 @@ void collect_private_subclonal_bps(const map<int, double*>& avg_loc_changes, int
 // distinguish gain/loss to account for different size distribution (not much help)
 // avg_loc_changes stores the absolute copy numbers for each gland
 //  frac_genome_alt = length(which(x!=y)) / length(x)
-void print_bin_subclonal_stat_by_type(const map<int, double*>& avg_loc_changes, int by_type = 1, int verbose=0){
+double print_bin_subclonal_stat_by_type(const map<int, double*>& avg_loc_changes, int by_type = 1, int verbose=0){
     int nsample = avg_loc_changes.size();
     // cout << "There are " << nsample << " samples" << endl;
 
@@ -447,11 +457,11 @@ void print_bin_subclonal_stat_by_type(const map<int, double*>& avg_loc_changes, 
 
     for(auto s : avg_loc_changes){
         for(int i = 0; i < NUM_LOC; i++){
-            if(round(s.second[i]) - START_GENOTYPE[i] > 0){
+            if(round(s.second[i]) - START_KARYOTYPE[i] > 0){
                 alter_indicator_sep_gain[i] += 1;
                 alter_indicator_sep[i] += 1;
             }
-            else if(round(s.second[i]) - START_GENOTYPE[i] < 0){
+            else if(round(s.second[i]) - START_KARYOTYPE[i] < 0){
                 alter_indicator_sep_loss[i] += 1;
                 alter_indicator_sep[i] += 1;
             }else{
@@ -487,6 +497,8 @@ void print_bin_subclonal_stat_by_type(const map<int, double*>& avg_loc_changes, 
         avg_nalter_sep_loss = (double) avg_nalter_sep_loss / NUM_LOC;
         cout << avg_nalter_sep_loss << endl;
     }
+
+    return avg_nalter_sep;
 }
 
 
@@ -611,9 +623,9 @@ void print_variance(const map<int, double*>& avg_loc_changes, int loc_type=BIN, 
 
     for(auto s : avg_loc_changes){
         for(int i = 0; i < NUM_LOC; i++){
-            // if (s.second[i] > START_GENOTYPE[i] || s.second[i] < START_GENOTYPE[i])
+            // if (s.second[i] > START_KARYOTYPE[i] || s.second[i] < START_KARYOTYPE[i])
             // bin_pcn[i](s.second[i]);
-            bin_pcn[i](s.second[i] - START_GENOTYPE[i]);
+            bin_pcn[i](s.second[i] - START_KARYOTYPE[i]);
         }
     }
 
@@ -671,8 +683,8 @@ each sample.
 ids: The ID of each clone (cell), sorted
 avg_loc_changes: the absolute copy numbers of each location (bin) along the genome
 */
-void print_pairwise_divergence(const vector<int>& ids, map<int, double*>& avg_loc_changes, int use_cdf = 1, int verbose = 0){
-    vector<double> alters;  // proportion of altered bins that are different for each pair of glands
+double print_pairwise_divergence(const vector<int>& ids, map<int, double*>& avg_loc_changes, vector<double>& alters, int use_cdf = 1, int use_alter = 1, int verbose = 0){
+    // vector<double> alters;  // proportion of altered bins that are different for each pair of glands
     int ntotal = 0;
     double avg_alter;
     VAR ppalters;
@@ -699,7 +711,12 @@ void print_pairwise_divergence(const vector<int>& ids, map<int, double*>& avg_lo
             }
 
             double prop_alter = 0;
-            if(num_alter > 0 && num_diff > 0) prop_alter = (double) num_diff / num_alter;
+            // when only altered regions are considered
+            if(use_alter == 1 && num_alter > 0 && num_diff > 0){
+              prop_alter = (double) num_diff / num_alter;
+            }else{  // use absolute bin size
+              prop_alter = num_diff;
+            }
             alters.push_back(prop_alter);
             ppalters(prop_alter);
             // cout << num_diff << "\t" << num_alter << "\t" << prop_alter << endl;
@@ -735,6 +752,7 @@ void print_pairwise_divergence(const vector<int>& ids, map<int, double*>& avg_lo
           cout << (double) npair / ntotal << endl;
       }
     }
+    return avg_alter;
 }
 
 
@@ -860,7 +878,7 @@ void print_sample_cnp(const map<int, double*>& avg_loc_changes, string outdir, s
 
 // Print CNP of selected glands in a single file (for gland as cell model)
 void print_cell_cnp(Clone* gland, string outdir, string suffix, int verbose = 0){
-    string fname = outdir + "gland_cn"  + suffix + ".txt";
+    string fname = outdir + "gland_cn_size" + to_string(gland->curr_cells.size()) + "_"  + suffix + ".txt";
     ofstream fcn;
     fcn.open(fname, ofstream::trunc | ofstream::out);
     // vector<pcn> cnp_s1, cnp_s2;
