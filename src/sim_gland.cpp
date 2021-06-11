@@ -125,8 +125,12 @@ void simulate_from_diploid(unsigned long seed, Cell_ptr start_cell, Glands gland
   }else{
     glands.simulate_gland_as_cell(start_cell, ndeme, start_model, lineages, store_lineage, loc_type, leap_size, track_lineage, multiple_output, verbose);
   }
-  cout << "Simulation stops and output samples" << endl;
-  printf("Time taken: %.2fs\n", (double)(clock() - tStart)/CLOCKS_PER_SEC);
+
+  // if(verbose > 0){
+    // cout << "Simulation stops and output samples" << endl;
+    printf("Time taken: %.2fs\n", (double)(clock() - tStart)/CLOCKS_PER_SEC);
+
+  // }
 
   if(verbose > 0 && fdeme != ""){
       string header = "Parent\tID\tTime\tNmut";
@@ -325,7 +329,7 @@ int main(int argc, char const *argv[]) {
     // parameters that are essential to simulations
     po::options_description required("Required parameters");
     required.add_options()
-      ("mode,m", po::value<int>(&mode)->default_value(0), "mode of simulation. 0: gland as cell; 1: gland fission when reaching certain size; 2: with potential metastasis")
+      ("mode,m", po::value<int>(&mode)->default_value(0), "mode of simulation. 0: gland as cell; 1: gland fission when reaching certain size; 2: simulating from diploid karyotype")
 
       ("birth_rate,b", po::value<double>(&birth_rate)->default_value(1), "birth rate")
       ("death_rate,d", po::value<double>(&death_rate)->default_value(0), "death rate")
@@ -378,15 +382,15 @@ int main(int argc, char const *argv[]) {
       ("bp_cutoff", po::value<double>(&BP_CUTOFF)->default_value(BP_CUTOFF), "threshold to determine whether a breakpoint can be detected or not")
       ("bin_cutoff", po::value<double>(&BIN_CUOFF)->default_value(BIN_CUOFF), "threshold to determine whether a bin can be detected as altered or not")
       ("frac_cutoff", po::value<double>(&frac_cutoff)->default_value(0.5), "cutoff of counting breakpoints")
+      ("fstat", po::value<string>(&fstat)->default_value(""), "file with summary statistics at different population size")
+      ("fdiv", po::value<string>(&fdiv)->default_value(""), "file with pairwise divergences at different population size")
+      ("ffit", po::value<string>(&ffit)->default_value(""), "file with individual fitnesses at different population size")
 
       // options related to output
       ("suffix", po::value<string>(&suffix)->default_value(""), "suffix of output file")
       ("track_lineage", po::value<int>(&track_lineage)->default_value(0), "whether or not to trace lineages. 0: No (only current population are kept). 1: Yes")
       ("fdeme", po::value<string>(&fdeme)->default_value(""), "file with deme (gland) relationships")
       ("fmut", po::value<string>(&fmut)->default_value(""), "file with mutation counting informaton")
-      ("fstat", po::value<string>(&fstat)->default_value(""), "file with summary statistics at different population size")
-      ("fdiv", po::value<string>(&fdiv)->default_value(""), "file with pairwise divergences at different population size")
-      ("ffit", po::value<string>(&ffit)->default_value(""), "file with individual fitnesses at different population size")
 
       ("leap_size", po::value<double>(&leap_size)->default_value(0.0), "step size of tau-leaping to accelerate the simulations (not used for now)")
 

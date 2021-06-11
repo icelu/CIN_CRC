@@ -101,35 +101,33 @@ const int MULTI_NCHR = 16;
 // const vector<int> CHR_BIN_SIZE{166,162,133,127,122,114,107,97,93,90,91,89,77,72,68,61,56,54,40,43,32,34};
 // const int NUM_LOC = 1928;
 
-// used for simulating glands
+// used for simulating glands (hg19). Each bin corresponds to a window of size 500,000 bp.
 const vector<int> CHR_BIN_SIZE{499,487,397,383,362,343,319,293,283,272,271,268,231,215,206,181,163,157,119,127,97,103};
-// accumulative chr size
+// accumulative chr size (hg19), used for updating bin changes when simulating chr-level CNAs
 const vector<int> CHR_SSIZE{499,986,1383,1766,2128,2471,2790,3083,3366,3638,3909,4177,4408,4623,4829,5010,5173,5330,5449,5576,5673,5776};
 const int NUM_LOC = 5776;
 
 vector<double> LOC_PROBS_vec(NUM_LOC, 1.0/NUM_LOC);
+// use array for passing to gsl function
 double* LOC_PROBS = &LOC_PROBS_vec[0];
 vector<double> CHR_PROBS_vec(NUM_CHR, 1.0/NUM_CHR);
 double* CHR_PROBS = &CHR_PROBS_vec[0];
 
 
-const int MAX_DEME_SIZE = 10000;
+const int MAX_DEME_SIZE = 10000;  // used in gland fission
 
+const double POS_SIGMA = 1;    // to define variance of cell location
+const double MIGRATE_OFFSET = 100.0;  // Position offset for migration clones
+
+const int MIN_NCELL = 100; // minimal population size in the simulation
+
+const int DEC_PLACE = 10;   // to control decimal place of copy number
 
 enum CNA_type{BIN, ARM, PSEUDO, BPOINT};
-const double POS_SIGMA = 1;
-const int MIN_NCELL = 100;
-const int DEC_PLACE = 10;
-
-// Position offset for migration clones
-const double MIGRATE_OFFSET = 100.0;
-
-int TOSAMPLE = 100; // number of random elements to sample from a population
-
-// enum SStat_type{LVAR, ADIFF, AVG, CMPL, DIFF, BP, ALTBIN, ALTBIN_SEP, BP_BIN, ALL};
 enum SStat_type{LVAR, ADIFF, AVG, CMPL, DIFF, BP, ALTBIN, ALTBIN_SEP, BP_BIN, ALL};
 enum Growth_type{ONLY_BIRTH, CHANGE_BIRTH, CHANGE_DEATH, CHANGE_BOTH};
 
+// threshold used to detect breakpoints or copy number changes
 double BP_CUTOFF = 0.1;
 double BIN_CUOFF = 0.1;
 
@@ -148,11 +146,15 @@ double OPT_KARYOTYPE_CHR[NUM_CHR] = {2};
 double WEIGHT_OPTIMUM; // control probability of mutation at locations in optimum karyotype
 
 int START_WITH_OPT = 1;
+
 double OPT_BIRTHRATE = 1;
 double OPT_DEATHRATE = 0;
+
 int CHR_CNA = 0; // whether or not to simulate chr-level CNA only; 0: no; 1: yes
 
-// print CNAs at specific times
+
+int TOSAMPLE = 100; // number of random elements to sample from a population
+// sample CNAs at specific times
 const vector<int> NTIMES{100, 500, 1000, 5000, 10000, 50000, 100000};
 // const vector<int> NTIMES{200, 500, 1000, 10000, 100000};
 

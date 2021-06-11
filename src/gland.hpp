@@ -83,13 +83,13 @@ void sample_demes(int nregion){
     // if(verbose > 0)   print_sample_cnp(outdir, suffix, verbose);
 }
 
+
 // Simulate CNP for each gland.
 // nglands: number of glands for each sides
 // ndeme: total number of glands
 void simulate_gland_growth(const Cell_ptr start_cell, int ndeme, int max_deme_size, const Model& start_model, vector<string>& lineages, int store_lineage = 0, int loc_type=BIN, double leap_size=0, int verbose = 0){
     int num_clone = 1;
     Clone* s = new Clone(num_clone, 0);
-    // s->grow(start_cell, max_deme_size, verbose, 1);
     s->grow_with_cnv(start_cell, start_model, max_deme_size, loc_type, leap_size, verbose);
     this->clones.push_back(s);
 
@@ -101,7 +101,6 @@ void simulate_gland_growth(const Cell_ptr start_cell, int ndeme, int max_deme_si
 
         // start growing from current population
         while (s0->curr_cells.size() < max_deme_size) {
-            // s0->grow(start_cell, max_deme_size, verbose, 0);
             s0->grow_with_cnv(start_cell, start_model, max_deme_size, loc_type, leap_size, verbose, 0);
         }
 
@@ -114,19 +113,16 @@ void simulate_gland_growth(const Cell_ptr start_cell, int ndeme, int max_deme_si
             if(rc < 0.5){
                 c->clone_ID = s1->clone_ID;
                 s1->curr_cells.push_back(c);
-                // s1->muts.insert(c->muts.begin(), c->muts.end());
                 for(auto mut : c->muts){
                   s1->muts_freq[mut]++;
                 }
             }else{
                 c->clone_ID = s2->clone_ID;
                 s2->curr_cells.push_back(c);
-                // s2->muts.insert(c->muts.begin(), c->muts.end());
                 for(auto mut : c->muts){
                   s2->muts_freq[mut]++;
                 }
             }
-            // this->muts.insert(c->muts.begin(), c->muts.end());
         }
         s0->curr_cells.clear();
         // keep growing the current demes
@@ -177,7 +173,7 @@ void simulate_gland_as_cell(const Cell_ptr start_cell, int ndeme, const Model& s
       }
       this->clones.push_back(s);
     }
-    cout << "Start cell birth rate " << start_cell->birth_rate << ", death rate " << start_cell->death_rate << endl;
+    if(verbose > 1) cout << "Start cell birth rate " << start_cell->birth_rate << ", death rate " << start_cell->death_rate << endl;
     assert(root != NULL);
     this->clones[0]->grow_with_cnv_cmpl(start_cell, start_model, ndeme, root, loc_type, leap_size, track_lineage, multiple_output, verbose, restart);
 
@@ -305,7 +301,7 @@ void  print_sstat(const vector<int>& ids, map<int, double*>& avg_loc_changes, ve
             print_pairwise_divergence(ids, avg_loc_changes, alters, 1, 1, verbose);
             break;
         }
-        case 4: {  // 4
+        case 4: {  // 4 (default)
             // cout << "Using pairwise difference" << endl;
             print_bin_subclonal_stat_by_type(avg_loc_changes, 0, verbose);
             print_pairwise_divergence(ids, avg_loc_changes, alters, 0, 1, verbose);
@@ -616,7 +612,6 @@ void print_variance(const map<int, double*>& avg_loc_changes, int loc_type=BIN, 
     map<int, VAR> bin_pcn;
     // map<int, NBIN> bin_cout;
     set<double> vars;   // only record unique value to ignore the effect of CNA size
-    // vector<double> vars;
 
     int nsample = avg_loc_changes.size();
     // cout << "There are " << nsample << " samples" << endl;

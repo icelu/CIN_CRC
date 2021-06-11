@@ -22,9 +22,10 @@ Comment out relevant line in 'makefile' to generate the simulation program 'simc
 # Usage of simgland
 Please run `./simgland -h` for all options.
 
-There are two modes of simulation.
-* Mode 0 (default): simulating each gland as a node. The simulation starts from a single gland and stops when there are N glands. When using option -g, a subset of glands will be sampled from both sides of the lineage tree.
+There are three modes of simulation.
+* Mode 0 (default): simulating each gland as a node. The simulation starts from a single gland with __"optimal"__ karyotype and stops when there are N glands. When using option -g, a subset of glands will be sampled from both sides of the lineage tree.
 * Mode 1: simulating each cell as a node and a gland is composed of a group of cells. The gland will divide into two glands when reaching a certain number of cells.
+* Mode 2: simulating each gland as a node. The simulation starts from a single gland with __diploid__ karyotype and stops when there are N glands. To reach "optimal" karyotype quickly, it is recommended to simulate CNAs at chr-level.
 
 In each mode, there are two models of evolution.
 * Model 0 (default): neutral.
@@ -55,17 +56,17 @@ Using '--fdeme FILENAME' will output the lineages of glands.
 ### Simulate multiple glands sampled from a single patient
 
 The example commands show the basic usage of the program.
-They will simulate 1000 glands with CNAs under mutation rate 0.1 and then sample 30 glands from each side of the lineage tree .
+They will simulate 1000 glands (starting from "optimal" karyotype) with new CNAs under mutation rate 0.1 and then sample 30 glands from each side of the lineage tree .
 Please go to folder 'bin' before running the commands.
 
 * Assuming neutral evolution:
 ```
-./simgland -o ./ -n 1000 -g "2 30 30" --seed $RANDOM --verbose 0 -r 0.1
+./bin/simgland -o ./ -n 1000 -g "2 30 30" --seed $RANDOM --verbose 0 -r 0.1
 ```
 
 * Assuming (negative) selection:
 ```
-./simgland -o ./  -n 1000 -g "2 30 30" --seed $RANDOM --verbose 0 -r 0.1 --model 1 -f 2
+./bin/simgland -o ./  -n 1000 -g "2 30 30" --seed $RANDOM --verbose 0 -r 0.1 --model 1 -f 2
 ```
 Here, Option '--model 1' indicates selection is imposed.
 Option '--fitness 2' specifies the strengths of selection.

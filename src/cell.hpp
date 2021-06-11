@@ -131,7 +131,7 @@ public:
     double birth_rate;
     double death_rate;
 
-    Coord pos{0, 0, 0};
+    Coord pos{0, 0, 0};   // used in simulations of multi-region samples
 
     // parameters related to mutation generations
     double mutation_rate;
@@ -141,7 +141,7 @@ public:
     vector<string> muts;  // IDs of mutations in one cell, used to count #unique mutations in a random population of cells
 
     int loc_changes[NUM_LOC] = {0};
-    int chr_changes[NUM_CHR] = {0};
+    int chr_changes[NUM_CHR] = {0};   // used when chr-level CNAs are simulated
 
     ~Cell() = default;
     Cell(const Cell& other) = default;
@@ -174,22 +174,13 @@ public:
     }
 
 
+    // called when creating daughter cells
+    // other properties will be copied from parent
     Cell(int cell_ID, int parent_ID, double time_occur) {
         this->cell_ID = cell_ID;
         this->parent_ID = parent_ID;
 
         this->time_occur = time_occur;
-        // this->is_sampled = 0;
-        //
-        // this->birth_rate = birth_rate;
-        // this->death_rate = death_rate;
-        //
-        // this->mutation_rate = 0;
-        // this->num_mut = 0;
-
-        // for(int i = 0; i < NUM_LOC; i++){
-        //     loc_changes[i] = START_KARYOTYPE[i];
-        // }
     }
 
 
@@ -221,6 +212,7 @@ public:
         return pos < o.pos;
     }
 
+
     Cell_ptr get_parent(vector<Cell_ptr> cells){
         for(int i = 0; i < cells.size(); i++){
             Cell_ptr cell = cells[i];
@@ -229,10 +221,10 @@ public:
         return NULL;
     }
 
+
     void copy_parent(const Cell& ncell){
         this->clone_ID = ncell.clone_ID;
 
-        // this->time_occur = ncell.time_occur;
         this->is_sampled = ncell.is_sampled;
         this->pos = ncell.pos;
 
@@ -261,6 +253,7 @@ public:
     }
 
 
+    // compute distance to optimum chr-level karyotype with potential weights
     double get_dist_chr_level(){
       double dist = 0;
 
@@ -278,6 +271,7 @@ public:
     }
 
 
+    // compute distance to optimum bin-level karyotype with potential weights
     double get_dist_bin_level(){
       double dist = 0;
 
@@ -373,7 +367,7 @@ public:
 
 
     /*
-    generate CNAs in a pseudo (abstract) way to save time
+    generate chr-level CNAs in a pseudo (abstract) way to save time
     1. choose locations of mutations
     2. randomly select gain or loss
     not follow infinite site assumption
