@@ -362,7 +362,7 @@ int main(int argc, char const *argv[]) {
       ("fitness,f", po::value<double>(&fitness)->default_value(0), "fitness values of mutatants")
       ("genotype_diff", po::value<int>(&genotype_diff)->default_value(3), "type of karyotype difference (L1 distance) in simulating selection. 0: not considered; 1: number of altered bins; 2: L1 distance of CN vectors at bin level; 3: number of new mutations (only known in simulated data); 4: distance of CN vectors computed when starting from diploid")
       ("norm_by_bin", po::value<int>(&norm_by_bin)->default_value(0), "whether or not to normalize karyotype difference by number of bins (segments) in the genome. 0: no; 1: yes")
-      ("growth_type,t", po::value<int>(&growth_type)->default_value(0), "Type of growth when adding selection. 0: only birth; 1: change birth rate; 2: change death rate; 3: change both birth or death rate")
+      ("growth_type,t", po::value<int>(&growth_type)->default_value(0), "Type of growth when adding selection. 0: only birth; 1: change birth rate; 2: change death rate; 3: change both birth and death rate")
 
       // options for simulation starting from diploid
       ("start_with_opt", po::value<int>(&START_WITH_OPT)->default_value(1), "the start karyotype of first node. 0: diploid. 1: optimum karyotype specified by input file if specified or using diploid as optimum")

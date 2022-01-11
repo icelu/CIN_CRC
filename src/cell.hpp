@@ -313,13 +313,13 @@ public:
         // this chunk was outside loop previously, should have litte effect at bin level as the mutation rate is very low (0, 0.5)
         // most division will only introduce at most 1 mutation due to low rate
         // multiple mutations may overlap at some bins
-        // save computation time when simulating a larger population
-        // dis_loc = gsl_ran_discrete_preproc(NUM_LOC, LOC_PROBS);
-        // start = gsl_ran_discrete(r, dis_loc);
+        // save computation time of generating random numbers when simulating a larger population
+        dis_loc = gsl_ran_discrete_preproc(NUM_LOC, LOC_PROBS);
+        start = gsl_ran_discrete(r, dis_loc);
 
         for (int j = 0; j < nu; j++) {
-            dis_loc = gsl_ran_discrete_preproc(NUM_LOC, LOC_PROBS);
-            start = gsl_ran_discrete(r, dis_loc);
+            // dis_loc = gsl_ran_discrete_preproc(NUM_LOC, LOC_PROBS);
+            // start = gsl_ran_discrete(r, dis_loc);
 
             u = runiform(r, 0, 1);
             len = 1;    // add 1 to avoid 0 length
