@@ -101,6 +101,7 @@ const int MULTI_NCHR = 16;
 // const vector<int> CHR_BIN_SIZE{166,162,133,127,122,114,107,97,93,90,91,89,77,72,68,61,56,54,40,43,32,34};
 // const int NUM_LOC = 1928;
 
+// The number of bins were extracted from CNA calls of real data
 // used for simulating glands (hg19). Each bin corresponds to a window of size 500,000 bp.
 const vector<int> CHR_BIN_SIZE{499,487,397,383,362,343,319,293,283,272,271,268,231,215,206,181,163,157,119,127,97,103};
 // accumulative chr size (hg19), used for updating bin changes when simulating chr-level CNAs
@@ -112,7 +113,7 @@ vector<double> LOC_PROBS_vec(NUM_LOC, 1.0/NUM_LOC);
 double* LOC_PROBS = &LOC_PROBS_vec[0];
 vector<double> CHR_PROBS_vec(NUM_CHR, 1.0/NUM_CHR);
 double* CHR_PROBS = &CHR_PROBS_vec[0];
-
+const double ARM_PROBS[2] = {0.5, 0.5};
 
 const int MAX_DEME_SIZE = 10000;  // used in gland fission
 
@@ -139,9 +140,12 @@ vector<int> real_loss_sizes;
 // karyotype at bin level
 double START_KARYOTYPE[NUM_LOC] = {2};
 double OPT_KARYOTYPE[NUM_LOC] = {2};
+// double OPT_KARYOTYPE2[NUM_LOC] = {2};
+
 // karyotype at chromosome level
 double START_KARYOTYPE_CHR[NUM_CHR] = {2};
 double OPT_KARYOTYPE_CHR[NUM_CHR] = {2};
+double OPT_KARYOTYPE2_CHR[NUM_CHR] = {2};
 
 double WEIGHT_OPTIMUM; // control probability of mutation at locations in optimum karyotype
 
@@ -382,8 +386,7 @@ int sample_from_empirical_cdf(const vector<int>& cna_sizes){
 
 
 // from https://stackoverflow.com/questions/28287138/c-randomly-sample-k-numbers-from-range-0n-1-n-k-without-replacement
-unordered_set<int> BobFloydAlgo(int sampleSize, int rangeUpperBound)
-{
+unordered_set<int> BobFloydAlgo(int sampleSize, int rangeUpperBound){
      unordered_set<int> sample;
      // default_random_engine generator;
      // cout << "sample " << sampleSize << " from " << rangeUpperBound << endl;
@@ -399,5 +402,18 @@ unordered_set<int> BobFloydAlgo(int sampleSize, int rangeUpperBound)
      return sample;
 }
 
+// https://stackoverflow.com/questions/9345087/choose-m-elements-randomly-from-a-vector-containing-n-elements
+template<class BidiIter>
+BidiIter random_unique(BidiIter begin, BidiIter end, size_t num_random){
+    size_t left = std::distance(begin, end);
+    while(num_random--){
+        BidiIter r = begin;
+        std::advance(r, rand() % left);
+        std::swap(*begin, *r);
+        ++begin;
+        --left;
+    }
+    return begin;
+}
 
 #endif

@@ -120,7 +120,7 @@ public:
     // void simulate_neutral_mutations(double t, const Model& start_model){
     //   int num_clone = 0;
     //   Clone* s0 = new Clone(num_clone++, "Metastasis", 0);
-    //   s0->grow_with_cnv(start_cell, start_model, loc_type, leap_size, verbose);
+    //   s0->grow_with_cnv(start_cell, start_model, loc_type, leap_size, 1, verbose);
     //   if(verbose > 0){
     //     cout << "Simulation stops at time " << s0->time_end << " with " << time_migration[0] << " cells at address " << s0 << endl;
     //   }
@@ -135,7 +135,7 @@ public:
         // grow the primary clone (there may be subclones)
         int num_clone = 0;
         Clone* s0 = new Clone(num_clone++, "Primary", 0);
-        s0->grow_with_cnv(start_cell, start_model, time_migration[0], loc_type, leap_size, verbose);
+        s0->grow_with_cnv(start_cell, start_model, time_migration[0], loc_type, leap_size, 1, verbose);
         if(verbose > 0) cout << "Primary clone stops at time " << s0->time_end << " with " << time_migration[0] << " cells at address " << s0 << endl;
 
         // Store the starting cells of metastasis clones
@@ -184,7 +184,7 @@ public:
 
             // continue the growth of primary clone
             if(c < nmeta){
-                s0->grow_with_cnv(start_cell, start_model, time_migration[c], loc_type, leap_size, verbose, 0);
+                s0->grow_with_cnv(start_cell, start_model, time_migration[c], loc_type, leap_size, 1, verbose, 0);
                 if(verbose > 0) cout << "Keep growing primary clone until time " << s0->time_end << " with " << s0->curr_cells.size() << " cells" << endl;
 
             }
@@ -192,7 +192,7 @@ public:
         cout << endl;
 
         if(s0->curr_cells.size() < size_primary){
-            s0->grow_with_cnv(start_cell, start_model, size_primary, loc_type, leap_size, verbose, 0);
+            s0->grow_with_cnv(start_cell, start_model, size_primary, loc_type, leap_size, 1, verbose, 0);
             if(verbose > 0){
                 cout << "Simulated primary clone has " << s0->num_novel_mutation << " de novo CNAs in " << s0->curr_cells.size() << " cells, growth stopped at time " << s0->time_end << endl;
             }
@@ -207,7 +207,7 @@ public:
             rcell->clone_ID = s1->clone_ID;
             rcell->cell_ID = 1;
             // allowing to grow to at most size_primary cells to save time
-            s1->grow_with_cnv(rcell, model_migration[c-1], size_primary, loc_type, leap_size, verbose, 1, s0->time_end + tend_migration[c-1]);
+            s1->grow_with_cnv(rcell, model_migration[c-1], size_primary, loc_type, leap_size, 1, verbose, 1, s0->time_end + tend_migration[c-1]);
             metastasis.push_back(s1);
             clones.push_back(s1);
             if(verbose > 0){
@@ -243,7 +243,7 @@ public:
             for(int i = 0; i < Nprim; i++){
                 s0->id_curr_cells.push_back(i+1);
             }
-            s0->grow_with_cnv(start_cell, start_model, time_migration[0], loc_type, leap_size, verbose, 0);
+            s0->grow_with_cnv(start_cell, start_model, time_migration[0], loc_type, leap_size, 1, verbose, 0);
             if(verbose > 0) cout << "Primary clone stops at time " << s0->time_end << " with " << time_migration[0] << " cells at address " << s0 << endl;
 
             // Store the starting cells of metastasis clones
@@ -292,7 +292,7 @@ public:
 
                 // continue the growth of primary clone
                 if(c < nmeta){
-                    s0->grow_with_cnv(start_cell, start_model, time_migration[c], loc_type, leap_size, verbose, 0);
+                    s0->grow_with_cnv(start_cell, start_model, time_migration[c], loc_type, leap_size, 1, verbose, 0);
                     if(verbose > 0) cout << "Keep growing primary clone until time " << s0->time_end << " with " << s0->curr_cells.size() << " cells" << endl;
 
                 }
@@ -300,7 +300,7 @@ public:
             cout << endl;
 
             if(s0->curr_cells.size() < size_primary){
-                s0->grow_with_cnv(start_cell, start_model, size_primary, loc_type, leap_size, verbose, 0);
+                s0->grow_with_cnv(start_cell, start_model, size_primary, loc_type, leap_size, 1, verbose, 0);
                 if(verbose > 0){
                     cout << "Simulated primary clone has " << s0->num_novel_mutation << " de novo CNAs in " << s0->curr_cells.size() << " cells, growth stopped at time " << s0->time_end << endl;
                 }
@@ -315,7 +315,7 @@ public:
                 rcell->clone_ID = s1->clone_ID;
                 rcell->cell_ID = 1;
                 // allowing to grow to at most size_primary cells to save time
-                s1->grow_with_cnv(rcell, model_migration[c-1], size_primary, loc_type, leap_size, verbose, 1, s0->time_end + tend_migration[c-1]);
+                s1->grow_with_cnv(rcell, model_migration[c-1], size_primary, loc_type, leap_size, 1, verbose, 1, s0->time_end + tend_migration[c-1]);
                 metastasis.push_back(s1);
                 clones.push_back(s1);
                 if(verbose > 0){

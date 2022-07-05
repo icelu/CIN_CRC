@@ -87,10 +87,10 @@ void sample_demes(int nregion){
 // Simulate CNP for each gland.
 // nglands: number of glands for each sides
 // ndeme: total number of glands
-void simulate_gland_growth(const Cell_ptr start_cell, int ndeme, int max_deme_size, const Model& start_model, vector<string>& lineages, int store_lineage = 0, int loc_type=BIN, double leap_size=0, int verbose = 0){
+void simulate_gland_growth(const Cell_ptr start_cell, int ndeme, int max_deme_size, const Model& start_model, vector<string>& lineages, int store_lineage = 0, int loc_type = BIN, double leap_size = 0, int nopt = 1, int verbose = 0){
     int num_clone = 1;
     Clone* s = new Clone(num_clone, 0);
-    s->grow_with_cnv(start_cell, start_model, max_deme_size, loc_type, leap_size, verbose);
+    s->grow_with_cnv(start_cell, start_model, max_deme_size, loc_type, leap_size, nopt, verbose);
     this->clones.push_back(s);
 
     while (this->clones.size() < ndeme) {
@@ -101,7 +101,7 @@ void simulate_gland_growth(const Cell_ptr start_cell, int ndeme, int max_deme_si
 
         // start growing from current population
         while (s0->curr_cells.size() < max_deme_size) {
-            s0->grow_with_cnv(start_cell, start_model, max_deme_size, loc_type, leap_size, verbose, 0);
+            s0->grow_with_cnv(start_cell, start_model, max_deme_size, loc_type, leap_size, nopt, verbose, 0);
         }
 
         // split deme
@@ -159,23 +159,25 @@ void print_gland_lineage(string fdeme, string header, const vector<string>& line
 // Simulate CNP for each gland (cell).
 // nglands: number of glands for each sides
 // ndeme: total number of glands
-void simulate_gland_as_cell(const Cell_ptr start_cell, int ndeme, const Model& start_model, vector<string>& lineages, int store_lineage = 0, int loc_type=BIN, double leap_size = 0, int track_lineage = 0, int multiple_output = 0, int verbose = 0, int restart = 1){
+void simulate_gland_as_cell(const Cell_ptr start_cell, int ndeme, const Model& start_model, vector<string>& lineages, int store_lineage = 0, int loc_type=BIN, double leap_size = 0, int nopt = 1, int track_lineage = 0, int multiple_output = 0, int verbose = 0, int restart = 1){
     if(this->clones.size() == 0){
       int num_clone = 1;
       Clone* s = new Clone(num_clone, 0);
       // if not starting from optimum, compute birth and death rate of starting cell based on optimum karyotype (specified by fgenotype)
       if(START_WITH_OPT == 0){
-        if((CHR_CNA == 0 && !(std::equal(std::begin(OPT_KARYOTYPE), std::end(OPT_KARYOTYPE), std::begin(START_KARYOTYPE)))) ||
-          (CHR_CNA == 1 && !(std::equal(std::begin(OPT_KARYOTYPE_CHR), std::end(OPT_KARYOTYPE_CHR), std::begin(START_KARYOTYPE_CHR))))){
-          assert(start_model.genotype_diff != 3); // infeasible to know the number of mutation in start cell in this case
-          s->update_cell_growth(start_cell, start_cell, start_model, loc_type, verbose);
-        }
+          if((CHR_CNA == 0 && !(std::equal(std::begin(OPT_KARYOTYPE), std::end(OPT_KARYOTYPE), std::begin(START_KARYOTYPE)))) ||
+            (CHR_CNA == 1 && (!(std::equal(std::begin(OPT_KARYOTYPE_CHR), std::end(OPT_KARYOTYPE_CHR), std::begin(START_KARYOTYPE_CHR))) 
+                          || !(std::equal(std::begin(OPT_KARYOTYPE2_CHR), std::end(OPT_KARYOTYPE2_CHR), std::begin(START_KARYOTYPE_CHR))))
+                          )){
+              assert(start_model.genotype_diff != 3); // infeasible to know the number of mutation in start cell in this case
+              s->update_cell_growth(start_cell, start_cell, start_model, loc_type, nopt, verbose);
+          }
       }
       this->clones.push_back(s);
     }
     if(verbose > 1) cout << "Start cell birth rate " << start_cell->birth_rate << ", death rate " << start_cell->death_rate << endl;
     assert(root != NULL);
-    this->clones[0]->grow_with_cnv_cmpl(start_cell, start_model, ndeme, root, loc_type, leap_size, track_lineage, multiple_output, verbose, restart);
+    this->clones[0]->grow_with_cnv_cmpl(start_cell, start_model, ndeme, root, loc_type, leap_size, nopt, track_lineage, multiple_output, verbose, restart);
 
     if(store_lineage != 0){
         for(auto d : this->clones[0]->cells){
@@ -439,7 +441,7 @@ void collect_private_subclonal_bps(const map<int, double*>& avg_loc_changes, int
 
 // distinguish gain/loss to account for different size distribution (not much help)
 // avg_loc_changes stores the absolute copy numbers for each gland
-//  frac_genome_alt = length(which(x!=y)) / length(x)
+// frac_genome_alt = length(which(x!=y)) / length(x)
 double print_bin_subclonal_stat_by_type(const map<int, double*>& avg_loc_changes, int by_type = 1, int verbose=0){
     int nsample = avg_loc_changes.size();
     // cout << "There are " << nsample << " samples" << endl;
@@ -497,6 +499,44 @@ double print_bin_subclonal_stat_by_type(const map<int, double*>& avg_loc_changes
     return avg_nalter_sep;
 }
 
+
+// treast single gland/cell data as pseudo-bulk data and compute average ploidy 
+// distinguish gain/loss to account for different size distribution (not much help)
+// avg_loc_changes stores the absolute copy numbers for each gland
+//  frac_genome_alt = length(which(x!=y)) / length(x)
+double print_pseudo_pga(const map<int, double*>& avg_loc_changes, int by_type = 1, int verbose=0){
+    int nsample = avg_loc_changes.size();
+    // cout << "There are " << nsample << " samples" << endl;
+    map<int, double> avg_ploidy;
+    int alter_indicator_sep[NUM_LOC] = {0};
+    double avg_nalter_sep = 0;
+
+    // compute average ploidy for each location
+    for(auto s : avg_loc_changes){
+        for(int i = 0; i < NUM_LOC; i++){
+           avg_ploidy[i] += s.second[i]; 
+        }
+    }
+
+    // exclude clonal regions
+    for(int i = 0; i < NUM_LOC; i++){
+      avg_ploidy[i] = avg_ploidy[i] / nsample;
+      // cout << i << "\t" << avg_ploidy[i] << endl;
+      if(abs(round(avg_ploidy[i]) - START_KARYOTYPE[i]) > 0)
+          avg_nalter_sep++;
+    }
+
+    // normalized by NUM_LOC to account for different choices of bin size (in real data)
+    avg_nalter_sep = (double) avg_nalter_sep / NUM_LOC;
+    cout << avg_nalter_sep << endl;
+
+    return avg_nalter_sep;
+}
+
+
+double print_dist2peak(){
+  
+}
 
 // count number of mutations in each gland and output their frequency. E.g how many glands with n mutations
 void print_nmut_per_gland(int max_mut = 10) {

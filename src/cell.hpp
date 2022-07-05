@@ -253,21 +253,51 @@ public:
     }
 
 
-    // compute distance to optimum chr-level karyotype with potential weights
-    double get_dist_chr_level(){
-      double dist = 0;
-
-      for(int i = 0; i < NUM_CHR; i++){
-        double weight = 1;  // add weight for locations different from optimum karyotype
-        double rcn = abs(this->chr_changes[i] - OPT_KARYOTYPE_CHR[i]);
-        if((this->chr_changes[i] != NORM_PLOIDY && START_KARYOTYPE_CHR[i] == OPT_KARYOTYPE_CHR[i]) ||
-            (this->chr_changes[i] != OPT_KARYOTYPE_CHR[i] && START_KARYOTYPE_CHR[i] != OPT_KARYOTYPE_CHR[i])){
-          weight = WEIGHT_OPTIMUM;
+    double get_dist2peak(){
+        double dist = 0;       
+        for(int i = 0; i < NUM_CHR; i++){
+            double weight = 1;  // add weight for locations different from optimum karyotype
+            double rcn = abs(this->chr_changes[i] - OPT_KARYOTYPE_CHR[i]);
+            if((this->chr_changes[i] != NORM_PLOIDY && START_KARYOTYPE_CHR[i] == OPT_KARYOTYPE_CHR[i]) ||
+                (this->chr_changes[i] != OPT_KARYOTYPE_CHR[i] && START_KARYOTYPE_CHR[i] != OPT_KARYOTYPE_CHR[i])){
+                weight = WEIGHT_OPTIMUM;
+            }
+            dist += weight * rcn;
         }
-        dist += weight * rcn;
-     }
 
-      return dist;
+        return dist;
+    }
+
+
+    double get_dist2peak2(){        
+        double dist2 = 0;
+        for(int i = 0; i < NUM_CHR; i++){
+            double weight = 1;
+            double rcn2 = abs(this->chr_changes[i] - OPT_KARYOTYPE2_CHR[i]);
+            if((this->chr_changes[i] != NORM_PLOIDY && START_KARYOTYPE_CHR[i] == OPT_KARYOTYPE2_CHR[i]) ||
+                (this->chr_changes[i] != OPT_KARYOTYPE2_CHR[i] && START_KARYOTYPE_CHR[i] != OPT_KARYOTYPE2_CHR[i])){
+                weight = WEIGHT_OPTIMUM;
+            }
+            dist2 += weight * rcn2; 
+        }  
+
+        return dist2;       
+    }
+
+
+    // compute distance to optimum chr-level karyotype with potential weights
+    double get_dist_chr_level(int nopt = 1, int verbose = 1){
+        double dist = get_dist2peak();
+
+        if(nopt > 1){
+            double dist2 = get_dist2peak2();
+            if(dist2 < dist){
+                if(verbose > 0) cout << "closer to peak 2" << endl;
+                dist = dist2;
+            }            
+        }       
+
+        return dist;
     }
 
 

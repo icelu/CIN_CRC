@@ -27,16 +27,14 @@ struct node {
     node* right;
     int flag; // whether the node is available (dead) or not
 
-    node(int data)
-    {
+    node(int data){
         this->data = data;
         this->flag = 0;
         left = NULL;
         right = NULL;
     }
 
-    node(int data, int flag)
-    {
+    node(int data, int flag){
         this->data = data;
         this->flag = flag;
         left = NULL;
@@ -351,7 +349,9 @@ public:
     map<int, double> meanfit_by_time ;
     map<int, double> maxfit_by_time;
     map<int, double> minfit_by_time;
-    map<int, double> dist_by_time;
+    map<int, double> dist_by_time;  // closest distance to peak
+    map<int, double> dist1_by_time; // distance to peak1
+    map<int, double> dist2_by_time; // distance to peak2
 
     // added for simulating glands
     vector<Cell_ptr> cells;   // all cells at present
@@ -570,11 +570,13 @@ public:
 
     // get fitness statistics of a clone
     // here fitness is actually growth rate, computed over all available cells in the clone
-    void get_fitness_stats() {
+    void get_fitness_stats(int nopt = 1, int verbose = 0) {
       double avg_fitness = 0.0;
       double max_fitness = 0.0;
       double min_fitness = 1000000.0;
       double avg_dist = 0.0;
+      double avg_dist1 = 0.0;
+      double avg_dist2 = 0.0;
 
       for(auto c : this->curr_cells){
         double s = c->birth_rate - c->death_rate;
@@ -590,7 +592,14 @@ public:
         }
 
         if(CHR_CNA == 1){
-          avg_dist += c->get_dist_chr_level();
+          if(nopt > 1){
+            double d1 = c->get_dist2peak();
+            avg_dist1 += d1;
+            double d2 = c->get_dist2peak2();
+            avg_dist2 += d2;
+            if(verbose > 0) cout << c->cell_ID << ", distance to peak 1 " << d1 << ", distance to peak 2 " << d2 << endl;
+          }
+          avg_dist += c->get_dist_chr_level(nopt, verbose);
         }else{
           avg_dist += c->get_dist_bin_level();
         }
@@ -606,6 +615,16 @@ public:
       this->maxfit_by_time[currsize] = max_fitness;
       this->minfit_by_time[currsize] = min_fitness;
       this->dist_by_time[currsize] = avg_dist;
+
+      if(nopt > 1){
+        avg_dist1 = avg_dist1 / currsize;
+        avg_dist2 = avg_dist2 / currsize;
+        this->dist1_by_time[currsize] = avg_dist1;
+        this->dist2_by_time[currsize] = avg_dist2;
+      }else{
+        this->dist1_by_time[currsize] = avg_dist;
+        this->dist2_by_time[currsize] = -1.0;
+      }
     }
 
 
@@ -651,7 +670,7 @@ public:
     * Otherwise, selection model is based on classic selection coefficient (negative selection -- negative s)
     * Genotype differences are considered to impose different selective advantages to different cells
     */
-    void update_cell_growth(Cell_ptr dcell, const Cell_ptr start_cell, const Model& model, int loc_type, int verbose = 0) {
+    void update_cell_growth(Cell_ptr dcell, const Cell_ptr start_cell, const Model& model, int loc_type, int nopt = 1, int verbose = 0) {
         // Introduce selection to cells with CNAs using specified fitness
         double gdiff = 0;
         // assume start cell has optimum karyotype by default
@@ -682,7 +701,8 @@ public:
           }else{  // used for initialization from diploid, chr-level changes allowable
             assert(model.genotype_diff == 4);
             if(CHR_CNA == 1){
-              gdiff += dcell->get_dist_chr_level();
+              // choose closer optimum karyotype when there are two peaks (smaller distance)
+              gdiff += dcell->get_dist_chr_level(nopt, verbose);
 
               if(verbose > 1){
                 // output cell karyotype
@@ -692,9 +712,10 @@ public:
                 }
                 cout << endl;
 
-                cout << "distance between them: " << gdiff << endl;
+                cout << "distance to closer optimum: " << gdiff << endl;
               }
             }else{
+                // not support two peaks
               gdiff += dcell->get_dist_bin_level();
             }
           }
@@ -849,7 +870,7 @@ public:
        output:
         a tree-like structure. For each Cell, its children, occurence time, birth rate, death rate
      */
-     void grow_with_cnv(const Cell_ptr ncell, const Model& model, int Nend, int loc_type, double leap_size=0, int verbose = 0, int restart = 1, double tend = DBL_MAX){
+     void grow_with_cnv(const Cell_ptr ncell, const Model& model, int Nend, int loc_type, double leap_size = 0, int nopt = 1, int verbose = 0, int restart = 1, double tend = DBL_MAX){
          // Initialize the simulation with one cell
          if(restart == 1) initialize_with_cnv(ncell, model, verbose);
 
@@ -861,8 +882,8 @@ public:
          if(verbose > 0) cout << "\nSimulating tumour growth with CNAs under model " << model.model_ID << " at time " << ncell->time_occur + t << endl;
 
          // && ncell->time_occur + t <= tend
-         while(this->curr_cells.size() < Nend) {
-             if (this->curr_cells.size() == 0) {
+         while(this->curr_cells.size() < Nend){
+             if (this->curr_cells.size() == 0){
                  t = 0;
                  mut_ID = ncell->num_mut;
                  nu = 0;
@@ -930,8 +951,8 @@ public:
                          if(verbose > 1){
                              cout << "Update the grow parameters of daughter cells " << endl;
                          }
-                         if(nu1 > 0) update_cell_growth(dcell1, ncell, model, loc_type, verbose);
-                         if(nu2 > 0) update_cell_growth(dcell2, ncell, model, loc_type, verbose);
+                         if(nu1 > 0) update_cell_growth(dcell1, ncell, model, loc_type, nopt, verbose);
+                         if(nu2 > 0) update_cell_growth(dcell2, ncell, model, loc_type, nopt, verbose);
                      }
                  }
                  // Remove the parent cell from the list of current cells
@@ -983,7 +1004,7 @@ public:
         output:
          a tree-like structure. For each Cell, its children, occurence time, birth rate, death rate
       */
-      void grow_with_cnv_cmpl(const Cell_ptr start_cell, const Model& model, int Nend, node* root, int loc_type, double leap_size=0, int track_lineage = 0, int multiple_output = 0, int verbose = 0, int restart = 1, double tend = DBL_MAX){
+      void grow_with_cnv_cmpl(const Cell_ptr start_cell, const Model& model, int Nend, node* root, int loc_type, double leap_size = 0, int nopt = 1, int track_lineage = 0, int multiple_output = 0, int verbose = 0, int restart = 1, double tend = DBL_MAX){
           // Initialize the simulation with one cell
           if(restart == 1){
               initialize_with_cnv_cmpl(start_cell, model, verbose);
@@ -1052,7 +1073,7 @@ public:
                   lchange_by_time[currsize] = avg_loc_changes;
 
                   // compute average fitness of the current population
-                  this->get_fitness_stats();
+                  this->get_fitness_stats(nopt, verbose);
                 }
               }
 
@@ -1133,13 +1154,12 @@ public:
                           cout << "Number of mutations in cell " << dcell2->cell_ID << ": " << "\t" << nu2 << endl;
                       }
 
-                      if(model.fitness != 0)
-                      {
+                      if(model.fitness != 0){
                           if(verbose > 1){
                               cout << "Update the growth parameters of daughter cells " << endl;
                           }
-                          if(nu1 > 0) update_cell_growth(dcell1, start_cell, model, loc_type, verbose);
-                          if(nu2 > 0) update_cell_growth(dcell2, start_cell, model, loc_type, verbose);
+                          if(nu1 > 0) update_cell_growth(dcell1, start_cell, model, loc_type, nopt, verbose);
+                          if(nu2 > 0) update_cell_growth(dcell2, start_cell, model, loc_type, nopt, verbose);
                       }
                   }
 

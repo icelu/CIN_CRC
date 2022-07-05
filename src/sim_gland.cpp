@@ -16,50 +16,43 @@ using namespace std;
 // Simulate bulk CNPs of individual glands taken from one patient
 
 
-// Start simulations from diploid, to show negative selection suppress karyotype diversity when close to fitness peak (optimal karyotype)
-void simulate_from_diploid(unsigned long seed, Cell_ptr start_cell, Glands glands, Model start_model, int ndeme, double WEIGHT_OPTIMUM,
-  int bottleneck, int time_bottleneck, int track_lineage, int loc_type, double leap_size, int multiple_output,
-  string fdeme, string fgenotype_chr, string outdir, string suffix, string fstat, string fdiv, string ffit, clock_t tStart, int verbose = 0){
-  // simulate cell (gland) growth, allowing output at different population sizes and metastasis from some cells
-  if(verbose > 0){
-    cout << "\nSimulating gland time-series growth" << endl;
-    if(CHR_CNA == 1){
-      cout << "\tSimulating chr-level CNAs for quick convergence" << endl;
-    }
-  }
-  int store_lineage = 0;
-  vector<string> lineages;
-  if(fdeme != ""){
-      store_lineage = 1;
-  }
-
-  if(fgenotype_chr != ""){
-      ifstream infile(fgenotype_chr);
+// read optimal chr-level karyotye from file, use index to distinguish different peaks
+void get_optimal_karyotype2_chr(string fgenotype_chr, string fgenotype2_chr, int verbose = 0){
+     assert(fgenotype_chr!="" && fgenotype_chr !="");
+     ifstream infile(fgenotype_chr);
+     ifstream infile2(fgenotype2_chr);
 
       // cout << "Skip header line" << endl;
       string line;
-      getline(infile, line); // skip the first line
-      // cout << line << endl;
 
-      while(getline(infile, line))
-      {
+      getline(infile, line); // skip the first line
+      while(getline(infile, line)){
         istringstream iss(line);
         string token;
         vector<int> vals;
-        while (std::getline(iss, token, '\t'))
-        {
-            // process each token
-            // std::cout << token << " ";
+        while (std::getline(iss, token, '\t')){
             vals.push_back(atoi(token.c_str()));
         }
         OPT_KARYOTYPE_CHR[vals[0] - 1] = vals[1];
-        // std::cout << std::endl;
       }
       infile.close();
 
+      
+      getline(infile2, line); // skip the first line
+      while(getline(infile2, line)){
+        istringstream iss(line);
+        string token;
+        vector<int> vals;
+        while (std::getline(iss, token, '\t')){
+            vals.push_back(atoi(token.c_str()));
+        }
+        OPT_KARYOTYPE2_CHR[vals[0] - 1] = vals[1];
+      }
+      infile2.close();
+
       // Increase the mutation likelihood of CNAs at optimum karyotype
       for(int i = 0; i < NUM_CHR; i++){
-        if(OPT_KARYOTYPE_CHR[i] != NORM_PLOIDY){
+        if(OPT_KARYOTYPE_CHR[i] != NORM_PLOIDY || OPT_KARYOTYPE2_CHR[i] != NORM_PLOIDY){
           CHR_PROBS[i] = CHR_PROBS[i] * WEIGHT_OPTIMUM;
         }
       }
@@ -83,13 +76,94 @@ void simulate_from_diploid(unsigned long seed, Cell_ptr start_cell, Glands gland
           cout << OPT_KARYOTYPE_CHR[i] << ", ";
         }
         cout << endl;
+
+        cout << "optimal karyotype 2: ";
+        for(int i = 0; i < NUM_CHR; i++){
+          cout << OPT_KARYOTYPE2_CHR[i] << ", ";
+        }
+        cout << endl;        
+      }
+}
+
+
+// Start simulations from diploid, to show negative selection suppress karyotype diversity when close to fitness peak (optimal karyotype)
+// when fgenotype2_chr is not empty, simulate to show more karyotype diversities occur when there are two fitness peaks (optimal karyotypes)
+void simulate_from_diploid(unsigned long seed, Cell_ptr start_cell, Glands glands, Model start_model, int ndeme, double WEIGHT_OPTIMUM,
+  int bottleneck, int time_bottleneck, int track_lineage, int loc_type, double leap_size, int multiple_output,
+  string fdeme, string fgenotype_chr, string fgenotype2_chr, string outdir, string suffix, string fstat, string fdiv, string ffit, clock_t tStart, int verbose = 0){
+  // simulate cell (gland) growth, allowing output at different population sizes and metastasis from some cells
+  if(verbose > 0){
+    cout << "\nSimulating gland time-series growth" << endl;
+    if(CHR_CNA == 1){
+      cout << "\tSimulating chr-level CNAs for quick convergence" << endl;
+    }
+  }
+  int store_lineage = 0;
+  vector<string> lineages;
+  if(fdeme != ""){
+      store_lineage = 1;
+  }
+
+  int nopt = 1;
+  if(fgenotype2_chr != ""){
+    get_optimal_karyotype2_chr(fgenotype_chr, fgenotype2_chr, verbose);
+    nopt = 2;
+    if(verbose > 0) cout << nopt << " peaks " << endl;
+  }else{
+      ifstream infile(fgenotype_chr);
+      // cout << "Skip header line" << endl;
+      string line;
+      getline(infile, line); // skip the first line
+      // cout << line << endl;
+
+      while(getline(infile, line)){
+        istringstream iss(line);
+        string token;
+        vector<int> vals;
+        while (std::getline(iss, token, '\t')){
+            // process each token
+            // std::cout << token << " ";
+            vals.push_back(atoi(token.c_str()));
+        }
+        OPT_KARYOTYPE_CHR[vals[0] - 1] = vals[1];
+        OPT_KARYOTYPE2_CHR[vals[0] - 1] = vals[1];  // create a copy to avoid logic breakdown when restarting from 1 cell
+        // std::cout << std::endl;
+      }
+      infile.close();
+
+      // Increase the mutation likelihood of CNAs at optimum karyotype
+      for(int i = 0; i < NUM_CHR; i++){
+        if(OPT_KARYOTYPE_CHR[i] != NORM_PLOIDY){
+          CHR_PROBS[i] = CHR_PROBS[i] * WEIGHT_OPTIMUM;
+        }
       }
   }
+
+    if(verbose > 1){
+      cout << "probability of chr-level CNAs:";
+      for(int i = 0; i < NUM_CHR; i++){
+        cout << " " << CHR_PROBS[i];
+      }
+      cout << endl;
+
+      cout << "start karyotype: ";
+      for(int i = 0; i < NUM_CHR; i++){
+        cout << START_KARYOTYPE_CHR[i] << ", ";
+      }
+      cout << endl;
+
+      // output optimal karyotype
+      cout << "optimal karyotype: ";
+      for(int i = 0; i < NUM_CHR; i++){
+        cout << OPT_KARYOTYPE_CHR[i] << ", ";
+      }
+      cout << endl;
+    }
 
   glands.root = new node(start_cell->cell_ID);
   if(bottleneck > 0){
     cout << "Simulate cell growth with " << bottleneck <<  "-cell bottleneck" << endl;
-    glands.simulate_gland_as_cell(start_cell, time_bottleneck, start_model, lineages, store_lineage, loc_type, leap_size, 0, 0, verbose);
+    glands.simulate_gland_as_cell(start_cell, time_bottleneck, start_model, lineages, store_lineage, loc_type, leap_size, nopt, 0, 0, verbose);
     cout << "Grow population until " << glands.clones[0]->curr_cells.size() << endl;
     // sample bottleneck cells from current population
     // cout << "Simulate bottleneck by deleting cells" << endl;
@@ -121,9 +195,9 @@ void simulate_from_diploid(unsigned long seed, Cell_ptr start_cell, Glands gland
     // start from remaining cells
     cout << "Regrow from the bottleneck population " << glands.clones[0]->curr_cells.size() << endl;
     cout << "old population now has size " << glands.clones[1]->curr_cells.size() << endl;
-    glands.simulate_gland_as_cell(start_cell, ndeme, start_model, lineages, store_lineage, loc_type, leap_size, track_lineage, multiple_output, verbose, 0);
+    glands.simulate_gland_as_cell(start_cell, ndeme, start_model, lineages, store_lineage, loc_type, leap_size, nopt, track_lineage, multiple_output, verbose, 0);
   }else{
-    glands.simulate_gland_as_cell(start_cell, ndeme, start_model, lineages, store_lineage, loc_type, leap_size, track_lineage, multiple_output, verbose);
+    glands.simulate_gland_as_cell(start_cell, ndeme, start_model, lineages, store_lineage, loc_type, leap_size, nopt, track_lineage, multiple_output, verbose);
   }
 
   // if(verbose > 0){
@@ -160,9 +234,10 @@ void simulate_from_diploid(unsigned long seed, Cell_ptr start_cell, Glands gland
       sort(gids.begin(), gids.end());
       map<int, double*> avg_loc_changes = glands.clones[0]->lchange_by_time[nsize];
       double pga = glands.print_bin_subclonal_stat_by_type(avg_loc_changes, 0, verbose);
+      double pga_bulk = glands.print_pseudo_pga(avg_loc_changes, 0, verbose);
       vector<double> alters;
       double avg_var = glands.print_pairwise_divergence(gids, avg_loc_changes, alters, 0, 1, verbose);
-      vector<double> sstats{pga, avg_var};
+      vector<double> sstats{pga, pga_bulk, avg_var};
       sstat_by_time[nsize] = sstats;
       div_by_time[nsize] = alters;
       // vector<double> svars = print_pairwise_divergence(ids, avg_loc_changes, 0, verbose);
@@ -210,23 +285,26 @@ void simulate_from_diploid(unsigned long seed, Cell_ptr start_cell, Glands gland
   if(verbose > 0) cout << "sampled cells " << gids.size() << endl;
   sort(gids.begin(), gids.end());
   double pga = glands.print_bin_subclonal_stat_by_type(avg_loc_changes, 0, verbose);
+  double pga_bulk = glands.print_pseudo_pga(avg_loc_changes, 0, verbose);
   vector<double> alters;
   double avg_var = glands.print_pairwise_divergence(gids, avg_loc_changes, alters, 0, 1, verbose);
-  vector<double> sstats{pga, avg_var};
+  vector<double> sstats{pga, pga_bulk, avg_var};
   int currsize = glands.clones[0]->curr_cells.size();
   sstat_by_time[currsize] = sstats;
   div_by_time[currsize] = alters;
 
-  glands.clones[0]->get_fitness_stats();
+  glands.clones[0]->get_fitness_stats(nopt, verbose);
 
   glands.print_cell_cnp(glands.clones[0], outdir, suffix, verbose);
 
   // seed size PGA divergence mean_fitness max_fitness min_fitness distance_to_optimum
+  // fitness = birth_rate - death_rate
   if(fstat != ""){
     ofstream fout;
     fout.open(fstat, ofstream::app);
     for(auto ss : sstat_by_time){
-      string msg = to_string(seed) + "\t" + to_string(ss.first) + "\t" + to_string(ss.second[0]) + "\t" + to_string(ss.second[1]) + "\t" + to_string(glands.clones[0]->meanfit_by_time[ss.first]) + "\t" + to_string(glands.clones[0]->maxfit_by_time[ss.first]) + "\t" + to_string(glands.clones[0]->minfit_by_time[ss.first]) + "\t" + to_string(glands.clones[0]->dist_by_time[ss.first]);
+      // "seed", "npop", "pga", "div", "meanf", "maxf", "minf", "dist"
+      string msg = to_string(seed) + "\t" + to_string(ss.first) + "\t" + to_string(ss.second[0]) + "\t" + to_string(ss.second[1]) + "\t" + to_string(ss.second[2]) + "\t" + to_string(glands.clones[0]->meanfit_by_time[ss.first]) + "\t" + to_string(glands.clones[0]->maxfit_by_time[ss.first]) + "\t" + to_string(glands.clones[0]->minfit_by_time[ss.first]) + "\t" + to_string(glands.clones[0]->dist_by_time[ss.first]) + "\t" + to_string(glands.clones[0]->dist1_by_time[ss.first]) + "\t" + to_string(glands.clones[0]->dist2_by_time[ss.first]);
       // + "\t" + to_string(glands.clones[0]->dm_by_time[ss.first]);
       cout << msg << '\n';
       fout << msg << endl;
@@ -278,11 +356,11 @@ int main(int argc, char const *argv[]) {
 
     string fmut;
 
-    string fgenotype;     // starting karyotype
+    string fgenotype, fgenotype_chr;     // optimum karyotype
     string flprob;     // location mutation probability
     string fgain;
     string floss;
-    string fgenotype_chr;
+    string fgenotype2, fgenotype2_chr;
 
     double leap_size;
 
@@ -350,11 +428,12 @@ int main(int argc, char const *argv[]) {
     po::options_description optional("Optional parameters");
     optional.add_options()
       // input files which specifies #sampled glands and CNA informaton
-      ("fgenotype", po::value<string>(&fgenotype)->default_value(""), "TSV file with starting karyotype of the first cell")
+      ("fgenotype", po::value<string>(&fgenotype)->default_value(""), "TSV file with optimum karyotype at bin level")
+      ("fgenotype_chr", po::value<string>(&fgenotype_chr)->default_value(""), "TSV file with optimum karyotype at chromosome level")    
+      ("fgenotype2_chr", po::value<string>(&fgenotype2_chr)->default_value(""), "TSV file with another optimum karyotype at chromosome level")      
       ("flprob", po::value<string>(&flprob)->default_value(""), "TSV file with probability of mutation at each location")
       ("fgain", po::value<string>(&fgain)->default_value(""), "TSV file with size of all copy number gains in the real data")
       ("floss", po::value<string>(&floss)->default_value(""), "TSV file with size of all copy number losses in the real data")
-      ("fgenotype_chr", po::value<string>(&fgenotype_chr)->default_value(""), "TSV file with starting karyotype of the first cell at chromosome level")
 
       // options related to model of evolution
       ("model", po::value<int>(&model_ID)->default_value(0), "model of evolution. 0: neutral; 1: selection")
@@ -462,13 +541,11 @@ int main(int argc, char const *argv[]) {
         getline(infile, line); // skip the first line
         // cout << line << endl;
 
-        while(getline(infile, line))
-        {
+        while(getline(infile, line)){
           istringstream iss(line);
           string token;
           vector<int> vals;
-          while (std::getline(iss, token, '\t'))
-          {
+          while (std::getline(iss, token, '\t')){
               // process each token
               // std::cout << token << " ";
               vals.push_back(atoi(token.c_str()));
@@ -609,7 +686,7 @@ int main(int argc, char const *argv[]) {
             store_lineage = 1;
         }
 
-        glands.simulate_gland_growth(start_cell, ndeme, max_deme_size, start_model, lineages, store_lineage, loc_type, leap_size, verbose);
+        glands.simulate_gland_growth(start_cell, ndeme, max_deme_size, start_model, lineages, store_lineage, loc_type, leap_size, 1, verbose);
 
         if(verbose > 0 && fdeme != ""){
             cout << "Print gland lineages" << endl;
@@ -661,7 +738,7 @@ int main(int argc, char const *argv[]) {
         }
 
         glands.root = new node(start_cell->cell_ID);
-        glands.simulate_gland_as_cell(start_cell, ndeme, start_model, lineages, store_lineage, loc_type, leap_size, track_lineage, 0, verbose);
+        glands.simulate_gland_as_cell(start_cell, ndeme, start_model, lineages, store_lineage, loc_type, leap_size, 1,track_lineage, 0, verbose);
 
         // sample from two sides of the lineage tree if the numbers are specified
         if(nglands.size() > 0){
@@ -725,7 +802,7 @@ int main(int argc, char const *argv[]) {
       assert(mode == 2);
       simulate_from_diploid(seed, start_cell, glands, start_model, ndeme, WEIGHT_OPTIMUM,
          bottleneck, time_bottleneck, track_lineage, loc_type, leap_size, multiple_output,
-         fdeme, fgenotype_chr, outdir, suffix, fstat, fdiv, ffit, tStart, verbose);
+         fdeme, fgenotype_chr, fgenotype2_chr, outdir, suffix, fstat, fdiv, ffit, tStart, verbose);
     }
 
     return 0;
