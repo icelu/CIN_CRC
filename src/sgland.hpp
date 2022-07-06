@@ -20,6 +20,51 @@
 
 using namespace std;
 
+// record GMutation ID to track clone expansion
+class GMutation
+{
+public:
+    int mut_ID;
+    int cell_ID;
+    int gen_ID;    
+    int chr;  // chromosome on which the GMutation occurs
+    int arm;    // 0: whole chr, 1: p; 2: q
+
+    ~GMutation() = default;
+    GMutation(const GMutation& other) = default;
+    GMutation(GMutation&& other) = default;
+    GMutation& operator=(const GMutation& other) = default;
+    GMutation& operator=(GMutation&& other) = default;
+
+    GMutation(){
+
+    }
+
+    GMutation(int mut_ID, int cell_ID, int gen_ID, int chr, int arm){
+        this->mut_ID = mut_ID;
+        this->cell_ID = cell_ID;
+        this->gen_ID = gen_ID;
+
+        this->chr = chr;
+        this->arm = arm;
+    }
+
+    bool operator<(const GMutation& mut) const{
+        if(mut.mut_ID < this->mut_ID){
+            return true;
+        }else{
+            return false;
+        }
+            
+    }
+
+    void print(ofstream& fout) const{
+        fout << mut_ID << "\t" << cell_ID << "\t" << gen_ID << "\t" << chr << "\t" << arm;
+    }
+
+};
+
+
 // cells in a cancer gland
 class GCell{
 public:
@@ -29,11 +74,10 @@ public:
     int num_divisions; // the number of generations that this cell exists since 1st division
     int status;  // 0: stem, 1: mitotic, 2: differentiated
 
-    GCell *sibling = NULL;
-
     // copy number for chr, arm; relative so that it is safe to ignore clonal events
     map<pair<int, int>, int> cn_profile;        // only applied to each arm
     map<pair<int, int>, int> obs_cn_profile;    // grouped by chr-/arm- level
+    vector<GMutation> muts; 
 
     ~GCell() = default;
     GCell(const GCell& other) = default;
@@ -51,13 +95,19 @@ public:
     }
 
 
+    void copy_parent(GCell* parent){
+        this->cn_profile = parent->cn_profile;
+        this->muts = parent->muts;    
+    }
+
+
     // generate a random number of CNAs
-    void generate_CNA(double arm_rate, double chr_rate, int verbose = 0){
+    void generate_CNA(int& mut_ID, double arm_rate, double chr_rate, int verbose = 0){
         assert(arm_rate >= 0 && chr_rate >= 0);
-        // A chr is not applicable to mutation if it has 0 copy. Since only relative changes are considered, assume there are sufficient copies
+        // A chr is not applicable to GMutation if it has 0 copy. Since only relative changes are considered, assume there are sufficient copies
         gsl_ran_discrete_t* dis_chr = gsl_ran_discrete_preproc(NUM_CHR, CHR_PROBS);
         gsl_ran_discrete_t* dis_arm = gsl_ran_discrete_preproc(2, ARM_PROBS);
-        int chr, arm, reciprocal = 1;
+        int chr, arm;
         double u = 0;
 
         int nu1 = gsl_ran_poisson(r, chr_rate);
@@ -72,21 +122,13 @@ public:
                 u = runiform(r, 0, 1);
                 if(u < 0.5){  // gain
                     cn_profile[pos1]++;       
-                    cn_profile[pos2]++;
-                    if(reciprocal && sibling != NULL){
-                        sibling->cn_profile[pos1]--;
-                        sibling->cn_profile[pos2]--;
-                        if(verbose > 1) cout << " reciprocal loss event on cell " << sibling->cell_ID << endl;
-                    }                
+                    cn_profile[pos2]++;              
                 }else{
                     cn_profile[pos1]--;
                     cn_profile[pos2]--;
-                    if(reciprocal && sibling != NULL){
-                        sibling->cn_profile[pos1]++;
-                        sibling->cn_profile[pos2]++;
-                        if(verbose > 1) cout << " reciprocal event on cell " << sibling->cell_ID << endl;
-                    }
                 }
+                GMutation mut(++mut_ID, cell_ID, gen_ID, chr, 0);
+                this->muts.push_back(mut);
             }
         }
 
@@ -102,17 +144,11 @@ public:
                 u = runiform(r, 0, 1);
                 if(u < 0.5){  // gain
                     cn_profile[pos]++;
-                    if(reciprocal && sibling != NULL){
-                        sibling->cn_profile[pos]--;
-                        if(verbose > 1) cout << " reciprocal loss event on cell " << sibling->cell_ID << endl;
-                    }
                 }else{
                     cn_profile[pos]--;
-                    if(reciprocal && sibling != NULL){
-                        sibling->cn_profile[pos]++;
-                        if(verbose > 1) cout << " reciprocal gain event on cell " << sibling->cell_ID << endl;
-                    }
-                }             
+                }  
+                GMutation mut(++mut_ID, cell_ID, gen_ID, chr, arm);
+                this->muts.push_back(mut);                           
             }
         }
 
@@ -145,19 +181,27 @@ public:
 
 
     // output the copy number profiles of a cell
-    void print_cn_profile(){
+    void print_cn_profile(ofstream& fout){
         // fout << "\tCNAs in cell " << cell_ID << " with flag " << flag << endl;
         for(auto cn : cn_profile){
             if(cn.second != 0){
-                cout << cell_ID << "\t" << cn.first.first + 1 << "\t" << cn.first.second << "\t" << cn.second << endl;
+                fout << cell_ID << "\t" << cn.first.first + 1 << "\t" << cn.first.second << "\t" << cn.second << endl;
             }
+        }
+    }
+
+
+    // output the mutations in a cell
+    void print_muts(ofstream& fout){
+        // fout << "\tCNAs in cell " << cell_ID << " with flag " << flag << endl;
+        for(auto mut : muts){           
+            fout << mut.mut_ID << "\t" << mut.cell_ID << "\t" << mut.gen_ID << "\t" << mut.chr << "\t" << mut.arm << endl;
         }
     }
 
 
     void print_cell_info(){
         cout << "cell " << this->cell_ID << ", parent " << this->parent_ID << ", generation " << this->gen_ID  << ", number of divisions " << this->num_divisions << ", status " << this->status << endl;
-        print_cn_profile();
     }
 
 
@@ -174,7 +218,7 @@ public:
     int num_gen_steady;
     double prob_d1;      // p (prob_d1) = 1: immortal stem cells; 0 <= p < 1: stem cell niche
 
-    // assume all cells in the gland have the same mutation rate
+    // assume all cells in the gland have the same GMutation rate
     double arm_rate;
     double chr_rate;
 
@@ -265,7 +309,7 @@ public:
     }
 
 
-    void update_stem_cell(GCell* rcell, int rindex, int& n_new_stem, int& n_new_nonstem, int& index_old_stem, int& cell_count, int gen_count, int gen_nonstem, int verbose = 0){
+    void update_stem_cell(GCell* rcell, int& mut_ID, int rindex, int& n_new_stem, int& n_new_nonstem, int& index_old_stem, int& cell_count, int gen_count, int gen_nonstem, int verbose = 0){
         // Each stem cell produces two cells, of which either 0, 1, or 2 are stem cells with probabilites q, p, and q, where p + 2q = 1
         // sample an observation of (v1, ..., vN), the number of daughter stem cells after each division, from the joint distribution
         double q = prob_children[pair<int,int>(1, 0)];
@@ -305,129 +349,46 @@ public:
         if(n_child_stem == 0){
             // check the life time of the non-stem cells, no need to store if they are very early 
             if(gen_count > gen_nonstem){               
-                GCell* dcell1 = new GCell(++cell_count, rcell->cell_ID, gen_count, 0, 1);               
-                dcell1->generate_CNA(arm_rate, chr_rate, verbose);               
-                GCell* dcell2 = new GCell(++cell_count, rcell->cell_ID, gen_count, 0, 1);               
-                dcell2->generate_CNA(arm_rate, chr_rate, verbose);  
+                GCell* dcell1 = new GCell(++cell_count, rcell->cell_ID, gen_count, 0, 1);  
+                dcell1->copy_parent(rcell);             
+                dcell1->generate_CNA(mut_ID, arm_rate, chr_rate, verbose); 
+
+                GCell* dcell2 = new GCell(++cell_count, rcell->cell_ID, gen_count, 0, 1);   
+                dcell2->copy_parent(rcell);              
+                dcell2->generate_CNA(mut_ID, arm_rate, chr_rate, verbose);  
+
                 this->non_stem_cells.push(dcell1);
                 this->non_stem_cells.push(dcell2); 
                 n_new_nonstem += 2;
             }
         }else if(n_child_stem == 1){
-            GCell* dcell1 = new GCell(++cell_count, rcell->cell_ID, gen_count, 0, 0);               
-            dcell1->generate_CNA(arm_rate, chr_rate, verbose);               
+            GCell* dcell1 = new GCell(++cell_count, rcell->cell_ID, gen_count, 0, 0);  
+            dcell1->copy_parent(rcell);          
+            dcell1->generate_CNA(mut_ID, arm_rate, chr_rate, verbose);               
             this->stem_cells.push_back(dcell1);
             if(gen_count > gen_nonstem){
-                GCell* dcell2 = new GCell(++cell_count, rcell->cell_ID, gen_count, 0, 1);               
-                dcell2->generate_CNA(arm_rate, chr_rate, verbose);   
+                GCell* dcell2 = new GCell(++cell_count, rcell->cell_ID, gen_count, 0, 1);  
+                dcell2->copy_parent(rcell);             
+                dcell2->generate_CNA(mut_ID, arm_rate, chr_rate, verbose);   
                 dcell2->num_divisions = 0;
                 this->non_stem_cells.push(dcell2);
                 n_new_nonstem += 1;
             }
         }else{
             assert(n_child_stem == 2);   
-            GCell* dcell1 = new GCell(++cell_count, rcell->cell_ID, gen_count, 0, 0);               
-            dcell1->generate_CNA(arm_rate, chr_rate, verbose);               
-            GCell* dcell2 = new GCell(++cell_count, rcell->cell_ID, gen_count, 0, 0);               
-            dcell2->generate_CNA(arm_rate, chr_rate, verbose);             
+
+            GCell* dcell1 = new GCell(++cell_count, rcell->cell_ID, gen_count, 0, 0);
+            dcell1->copy_parent(rcell);                          
+            dcell1->generate_CNA(mut_ID, arm_rate, chr_rate, verbose);   
+
+            GCell* dcell2 = new GCell(++cell_count, rcell->cell_ID, gen_count, 0, 0);
+            dcell2->copy_parent(rcell);               
+            dcell2->generate_CNA(mut_ID, arm_rate, chr_rate, verbose);  
+
             this->stem_cells.push_back(dcell1);
             this->stem_cells.push_back(dcell2); 
         }
     }
-
-
-    // To avoid another parameter, num_gen_nonstem, keep all new non-stem cells and remove old ones in order to keep fixed size
-    void update_non_stem_cell_by_queue(int& cell_count, int gen_count, int verbose = 0){
-        int num_nonstem = (gsize - num_stem);   // total number of non-stem cells to keep
-        int n_new_nonstem = this->non_stem_cells.size() - num_nonstem;  
-        assert(n_new_nonstem == num_stem);
-        if(verbose > 0) cout << "new non-stem cells from stem cells in the previous generation: " << n_new_nonstem << endl;
-        // compute number of non-stem cells to remove and let the other divide 
-        // No need to simulate non-stem cells until generation g-h if non-stem cell lineages have a maximal life time of h generations
-        int n_to_pop = gsize / 2;
-        if(verbose > 0) cout << "Removing " << n_to_pop << "oldest non-stem cells\n";
-        for(int i = 0; i < n_to_pop; i++){ 
-            GCell* rcell = this->non_stem_cells.front();
-            delete rcell;
-            this->non_stem_cells.pop();                   
-        }        
-        while(n_new_nonstem < num_nonstem){  // to keep constant size C of the whole crypt 
-            // simulate based on offspring distributions under independent branching process?
-            GCell* rcell = this->non_stem_cells.front();
-            assert(!rcell->status);
-           
-            // a non-stem cell always generates two cells
-            GCell* dcell1 = new GCell(++cell_count, rcell->cell_ID, gen_count, rcell->num_divisions+1, 1);               
-            dcell1->generate_CNA(arm_rate, chr_rate, verbose);     
-            this->non_stem_cells.push(dcell1);          
-
-            GCell* dcell2 = new GCell(++cell_count, rcell->cell_ID, gen_count, rcell->num_divisions+1, 1);               
-            dcell2->generate_CNA(arm_rate, chr_rate, verbose);  
-            this->non_stem_cells.push(dcell2);
-            
-            n_new_nonstem += 2; 
-
-            delete rcell;
-            this->non_stem_cells.pop();         
-        }          
-    }
-
-
-    void update_non_stem_cell_per_generation(int cell_count, int gen_count, int gen_nonstem, int num_nonstem, int verbose = 0){
-        if(gen_count <= gen_nonstem){
-            if(verbose > 0) cout << "Updating non-stem cells" << endl;
-            update_non_stem_cell_by_queue(cell_count, gen_count, verbose); 
-        }else{
-            if(verbose > 0){
-                cout << "Keeping non-stem cells steady" << endl;
-                cout << "Removing " << num_stem << "oldest non-stem cells\n";
-            }
-            // no non-stem cell divisions at the last n generations, not realistic
-            for(int i = 0; i < num_stem; i++){ 
-                GCell* rcell = this->non_stem_cells.front();
-                delete rcell;
-                this->non_stem_cells.pop();                   
-            }                  
-        }   
-        assert(this->non_stem_cells.size() == num_nonstem);                                
-    }
-
-    // Use pre-specified number of generations to save computation
-    void update_non_stem_cell_by_generation(int& cell_count, int gen_count, int verbose = 0){
-        int num_nonstem = (gsize - num_stem);   // total number of non-stem cells to keep
-        int n_new_nonstem = this->non_stem_cells.size() - num_nonstem;  
-        assert(n_new_nonstem == num_stem);
-        if(verbose > 0) cout << "new non-stem cells from stem cells in the previous generation: " << n_new_nonstem << endl;
-        // compute number of non-stem cells to remove and let the other divide 
-        // No need to simulate non-stem cells until generation g-h if non-stem cell lineages have a maximal life time of h generations
-        int n_to_pop = gsize / 2;
-        if(verbose > 0) cout << "Removing " << n_to_pop << "oldest non-stem cells\n";
-        for(int i = 0; i < n_to_pop; i++){ 
-            GCell* rcell = this->non_stem_cells.front();
-            delete rcell;
-            this->non_stem_cells.pop();                   
-        }        
-        while(n_new_nonstem < num_nonstem){  // to keep constant size C of the whole crypt 
-            // simulate based on offspring distributions under independent branching process?
-            GCell* rcell = this->non_stem_cells.front();
-            assert(!rcell->status);
-           
-            // a non-stem cell always generates two cells
-            GCell* dcell1 = new GCell(++cell_count, rcell->cell_ID, gen_count, rcell->num_divisions+1, 1);               
-            dcell1->generate_CNA(arm_rate, chr_rate, verbose);     
-            this->non_stem_cells.push(dcell1);          
-
-            GCell* dcell2 = new GCell(++cell_count, rcell->cell_ID, gen_count, rcell->num_divisions+1, 1);               
-            dcell2->generate_CNA(arm_rate, chr_rate, verbose);  
-            this->non_stem_cells.push(dcell2);
-            
-            n_new_nonstem += 2; 
-
-            delete rcell;
-            this->non_stem_cells.pop();         
-        }          
-    }
-
 
 
     // assume N stem cells in a gland base after each division
@@ -435,6 +396,7 @@ public:
     // N initial cancer stem cells in the gland with core karyotype, new CNAs generated during dynamic process of the cancer gland  
     void grow_with_cna(int verbose = 0){       
         int gen_count = 0;
+        int mut_ID = 0;
         int num_nonstem = gsize - num_stem;   
         int gen_nonstem = num_gen - num_gen_nonstem - num_gen_steady;   // the generation ID when the non-stem cells can last to present
         if(verbose > 0){
@@ -482,12 +444,14 @@ public:
                         continue;
                     }
                     // a non-stem cell always generates two cells
-                    GCell* dcell1 = new GCell(++cell_count, rcell->cell_ID, gen_count, rcell->num_divisions+1, 1);               
-                    dcell1->generate_CNA(arm_rate, chr_rate, verbose);     
+                    GCell* dcell1 = new GCell(++cell_count, rcell->cell_ID, gen_count, rcell->num_divisions+1, 1);
+                    dcell1->copy_parent(rcell);               
+                    dcell1->generate_CNA(mut_ID, arm_rate, chr_rate, verbose);     
                     this->non_stem_cells.push(dcell1);          
 
-                    GCell* dcell2 = new GCell(++cell_count, rcell->cell_ID, gen_count, rcell->num_divisions+1, 1);               
-                    dcell2->generate_CNA(arm_rate, chr_rate, verbose);  
+                    GCell* dcell2 = new GCell(++cell_count, rcell->cell_ID, gen_count, rcell->num_divisions+1, 1); 
+                    dcell2->copy_parent(rcell);              
+                    dcell2->generate_CNA(mut_ID, arm_rate, chr_rate, verbose);  
                     this->non_stem_cells.push(dcell2);
                     
                     n_new_nonstem += 2; 
@@ -506,7 +470,7 @@ public:
             for(int i = 0; i < num_stem; i++){
                 GCell* rcell = this->stem_cells[i]; 
                 assert(rcell->status == 0);
-                update_stem_cell(rcell, i, n_new_stem, n_new_nonstem, index_old_stem, cell_count, gen_count, gen_nonstem, verbose);
+                update_stem_cell(rcell, mut_ID, i, n_new_stem, n_new_nonstem, index_old_stem, cell_count, gen_count, gen_nonstem, verbose);
             }           
             // remove old stem cells at the end to avoid breaking index
             for(int i = 0; i < num_stem; i++){ 
@@ -617,8 +581,10 @@ public:
                 }
              }
         }
-        while(!non_stem_cells.empty()){
-            GCell* c = non_stem_cells.front();
+
+        queue<GCell*> non_stem_cells2(non_stem_cells);
+        while(!non_stem_cells2.empty()){
+            GCell* c = non_stem_cells2.front();
             for(int i = 0; i < NUM_CHR; i++){
                 for(int j = 1; j < 3; j++){
                     pair<int, int> pos(i,j);
@@ -627,9 +593,50 @@ public:
                     }
                 }
             }
-            non_stem_cells.pop();             
+            non_stem_cells2.pop();             
         }
      }
+
+
+     void write_cna(ofstream& fout){
+        for(auto c : stem_cells){
+            c->print_cn_profile(fout); 
+        }
+
+        queue<GCell*> non_stem_cells2(non_stem_cells);
+        while(!non_stem_cells2.empty()){
+            GCell* c = non_stem_cells2.front();
+            c->print_cn_profile(fout);
+            non_stem_cells2.pop();             
+        }
+     }
+
+
+     // write mutation frequency   
+     void write_mut(ofstream& fout){
+        map<GMutation, int> mut_count;
+        for(auto c : stem_cells){
+            // string mu = to_string(c->mut.mut_ID) << "\t" << to_string(mut.cell_ID) << "\t" << to_string(mut.gen_ID) << "\t" << to_string(mut.chr << "\t" << to_string(mut.arm
+            // c->print_muts(fout);
+            for(auto mut : c->muts){  
+                mut_count[mut]++;
+            }
+        }
+
+        queue<GCell*> non_stem_cells2(non_stem_cells);
+        while(!non_stem_cells2.empty()){
+            GCell* c = non_stem_cells2.front();
+            for(auto mut : c->muts){  
+                mut_count[mut]++;
+            }
+            non_stem_cells2.pop();             
+        }
+
+        for(auto mc : mut_count){
+            mc.first.print(fout);
+            fout << "\t" << to_string(mc.second) << endl;
+        }
+     }     
 };
 
 

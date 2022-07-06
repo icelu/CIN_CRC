@@ -274,8 +274,9 @@ public:
         for(int i = 0; i < NUM_CHR; i++){
             double weight = 1;
             double rcn2 = abs(this->chr_changes[i] - OPT_KARYOTYPE2_CHR[i]);
-            if((this->chr_changes[i] != NORM_PLOIDY && START_KARYOTYPE_CHR[i] == OPT_KARYOTYPE2_CHR[i]) ||
-                (this->chr_changes[i] != OPT_KARYOTYPE2_CHR[i] && START_KARYOTYPE_CHR[i] != OPT_KARYOTYPE2_CHR[i])){
+            // actually all locations are weighted equally
+            if((this->chr_changes[i] != NORM_PLOIDY && START_KARYOTYPE_CHR[i] == OPT_KARYOTYPE2_CHR[i]) ||    // locations where the start is equal to optimal
+                (this->chr_changes[i] != OPT_KARYOTYPE2_CHR[i] && START_KARYOTYPE_CHR[i] != OPT_KARYOTYPE2_CHR[i])){  // locations with changes specific to optimal
                 weight = WEIGHT_OPTIMUM;
             }
             dist2 += weight * rcn2; 

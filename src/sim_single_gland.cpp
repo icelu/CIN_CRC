@@ -26,7 +26,8 @@ const int DAY_IN_YEAR = 365;
 // aim: estimate mutation rate from observed CNAs in sampled cells
 // assumption: discrete and non-overlapping generations
 int main(int argc, char const *argv[]){
-    string outdir, prefix, suffix, flocus;
+    string outdir, prefix, suffix, flocus, fcna, fmut;
+
     /******************* paramters obtained from literature *******************/
     int num_stem;  // N stem cells starting with core karyotype, range
     int gsize;   // total number of cells in the gland, range 2000 to 10000
@@ -82,6 +83,8 @@ int main(int argc, char const *argv[]){
       ("prefix,p", po::value<string>(&prefix)->default_value(""), "prefix of output file")
       ("suffix,s", po::value<string>(&suffix)->default_value(""), "suffix of output file")
       ("flocus,s", po::value<string>(&flocus)->default_value(""), "output file recording locus-specific diversity")
+      ("fcna", po::value<string>(&fcna)->default_value(""), "output file recording copy number profile")
+      ("fmut", po::value<string>(&fmut)->default_value(""), "output file recording mutations")
 
       ("seed", po::value<unsigned long>(&seed)->default_value(0), "seed used for generating random numbers")
       ("verbose", po::value<int>(&verbose)->default_value(0), "verbose level (0: default, 1: print information of final cells; 2: print information of all cells)")
@@ -147,6 +150,22 @@ int main(int argc, char const *argv[]){
           // chr, arm, #cells
           fout << ld.first.first + 1 << "\t" << ld.first.second << "\t"  << ld.second << "\n";
       }
+      fout.close();
+    }
+
+    // output CNAs in each cell for visualization
+    if(fcna != ""){
+      cout << "writing copy numbers in each cell" << endl;
+      ofstream fout(fcna);
+      g.write_cna(fout);
+      fout.close();
+    }
+
+    // check the distribution of CNA frequency, similar to VAF distribution
+    if(fmut != ""){
+      cout << "writing mutation information" << endl;
+      ofstream fout(fmut);
+      g.write_mut(fout);
       fout.close();
     }
 
